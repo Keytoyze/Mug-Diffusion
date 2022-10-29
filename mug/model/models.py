@@ -249,7 +249,7 @@ class Encoder(nn.Module):
                                        out_channels=block_in,
                                        temb_channels=0,
                                        dropout=0)
-        self.mid.attn_1 = AttnBlock(block_in)
+        # self.mid.attn_1 = AttnBlock(block_in)
         self.mid.block_2 = ResnetBlock(in_channels=block_in,
                                        out_channels=block_in,
                                        temb_channels=0,
@@ -279,7 +279,7 @@ class Encoder(nn.Module):
 
         # middle
         h = self.mid.block_1(h)
-        h = self.mid.attn_1(h)
+        # h = self.mid.attn_1(h)
         h = self.mid.block_2(h)
 
         # end
@@ -313,7 +313,7 @@ class Decoder(nn.Module):
                                        out_channels=block_in,
                                        temb_channels=0,
                                        dropout=0)
-        self.mid.attn_1 = AttnBlock(block_in)
+        # self.mid.attn_1 = AttnBlock(block_in)
         self.mid.block_2 = ResnetBlock(in_channels=block_in,
                                        out_channels=block_in,
                                        temb_channels=0,
@@ -358,7 +358,7 @@ class Decoder(nn.Module):
 
         # middle
         h = self.mid.block_1(h)
-        h = self.mid.attn_1(h)
+        # h = self.mid.attn_1(h)
         h = self.mid.block_2(h)
 
         # upsampling
@@ -371,7 +371,6 @@ class Decoder(nn.Module):
                 h = self.up[i_level].upsample(h)
 
         # end
-        torch.nn.Identity
         h = self.norm_out(h)
         h = nonlinearity(h)
         h = self.conv_out(h)
