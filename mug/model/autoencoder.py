@@ -13,7 +13,6 @@ class AutoencoderKL(pl.LightningModule):
     def __init__(self,
                  ddconfig,
                  lossconfig,
-                 embed_dim,
                  ckpt_path=None,
                  ignore_keys=[],
                  monitor=None,
@@ -24,9 +23,6 @@ class AutoencoderKL(pl.LightningModule):
         self.decoder = Decoder(**ddconfig)
         self.loss = instantiate_from_config(lossconfig)
 
-        self.quant_conv = torch.nn.Conv1d(ddconfig["z_channels"], embed_dim, 1)
-        self.post_quant_conv = torch.nn.Conv1d(embed_dim, ddconfig["z_channels"], 1)
-        self.embed_dim = embed_dim
         self.z_l2_reg = z_l2_reg
         if monitor is not None:
             self.monitor = monitor
@@ -106,7 +102,6 @@ class AutoencoderKL(pl.LightningModule):
                                lr=lr)
         return opt
 
-
     @torch.no_grad()
     def log_beatmap(self, batch, count, **kwargs):
         notes = batch['note']
@@ -127,7 +122,6 @@ class AutoencoderKL(pl.LightningModule):
                                     {"Version": f"{meta.version}_autoencoder"})
             with open(os.path.join(self.logger.save_dir, "log_beatmap.txt"), "a+") as f:
                 f.write(target_path + '\n')
-
 
     def summary(self):
         import torchsummary
@@ -159,6 +153,22 @@ class ManiaReconstructLoss(torch.nn.Module):
             inputs[:, index:index + key_count, :]
         )
         return torch.mean(loss * valid) / torch.mean(valid + 1e-6)
+
+    def classification_metrics(self, inputs, reconstructions, valid_flag, key_count):
+        predict_start = reconstructions >= 0
+        true_start = inputs
+        tp = true_start == predict_start
+        tp_valid = tp * valid_flag
+        acc_start = (torch.sum(tp_valid) /
+                     torch.sum(valid_flag) / key_count
+                     ).item()
+        precision_start = (torch.sum(tp_valid * predict_start) /
+                           torch.sum(predict_start * valid_flag)
+                           ).item()
+        recall_start = (torch.sum(tp_valid * true_start) /
+                        torch.sum(true_start * valid_flag)
+                        ).item()
+        return acc_start, precision_start, recall_start
 
     def forward(self, inputs: torch.Tensor, reconstructions: torch.Tensor,
                 valid_flag: torch.Tensor):
@@ -200,6 +210,15 @@ class ManiaReconstructLoss(torch.nn.Module):
                                             key_count,
                                             self.mse_loss, key_count * 3)
 
+        acc_start, precision_start, recall_start = self.classification_metrics(
+            is_start, reconstructions[:, :key_count, :], valid_flag, key_count
+        )
+        acc_ln_start, precision_ln_start, recall_ln_start = self.classification_metrics(
+            inputs[:, 2 * key_count:3 * key_count, :],
+            reconstructions[:, 2 * key_count:3 * key_count, :],
+            valid_flag, key_count
+        )
+
         loss = (start_loss +
                 holding_loss * self.weight_holding +
                 offset_start_loss * self.weight_start_offset +
@@ -208,7 +227,13 @@ class ManiaReconstructLoss(torch.nn.Module):
             'start_loss': start_loss.detach().item(),
             'holding_loss': holding_loss.detach().item(),
             'offset_start_loss': offset_start_loss.detach().item(),
-            'offset_end_loss': offset_end_loss.detach().item()
+            'offset_end_loss': offset_end_loss.detach().item(),
+            "acc_rice": acc_start,
+            "acc_ln": acc_ln_start,
+            "precision_rice": precision_start,
+            "precision_ln": precision_ln_start,
+            "recall_rice": recall_start,
+            "recall_ln": recall_ln_start,
         }
 
 

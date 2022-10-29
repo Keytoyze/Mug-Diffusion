@@ -130,8 +130,8 @@ class OsuDataset(Dataset):
                 "note": obj_array,
                 "valid_flag": valid_flag
             }
-            # if self.with_audio:
-            audio = self.load_audio(beatmap_meta.audio)
+            if self.with_audio:
+                audio = self.load_audio(beatmap_meta.audio)
             return example
         except:
             # raise

@@ -3,20 +3,18 @@ model:
   target: mug.model.autoencoder.AutoencoderKL
   params:
     monitor: "val/loss"
-    embed_dim: 64
     z_l2_reg: 0.00001
-    ckpt_path: logs/2022-10-27T17-38-52_autoencoder/checkpoints/epoch=000024.ckpt
     lossconfig:
       target: mug.model.autoencoder.ManiaReconstructLoss
       params:
         weight_start_offset: 0.5
-        weight_holding: 0.2
+        weight_holding: 0.5
         weight_end_offset: 0.2
-        label_smoothing: 0.00
+        label_smoothing: 0.001
 
     ddconfig:
       x_channels: 16 # key_count * 4
-      middle_channels: 32
+      middle_channels: 64
       z_channels: 64
       channel_mult: [ 1,1,2,2,4,4 ]  # num_down = len(ch_mult)-1
       num_res_blocks: 2
@@ -31,12 +29,12 @@ data:
     wrap: False
     num_workers: 4
     common_params:
-      txt_file: "data\\mug\\local_mania_4k.txt"
+      txt_file: "data/beatmap_4k/beatmap.txt"
       sr: 22050
       n_fft: 2048
       max_audio_frame: 16384
       n_mels: 128
-      cache_dir: "data\\audio_cache\\"
+      cache_dir: "data/audio_cache/"
       # audio_window_frame = n_fft / sr / 4 = 0.02321995 s
       # note_window_frame = 2 * audio_window_frame = 0.04643990 s
       # max_duration = audio_window_frame * max_audio_frame = 380.4357 s = 6 min 20 s
@@ -46,13 +44,13 @@ data:
       params:
         mirror_p: 0.3
         random_p: 0.1
-        shift_p: 0.3
+        shift_p: 0.1
         rate: [ 0.8,1.2 ]
 
     validation:
       target: mug.data.dataset.OsuValidDataset
-      params:
-        test_txt_file: "data\\mug\\local_mania_4k_test.txt"
+      params: {}
+#        test_txt_file: "data\\mug\\local_mania_4k_test.txt"
 
 
 lightning:
