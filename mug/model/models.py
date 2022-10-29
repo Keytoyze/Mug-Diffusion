@@ -1,12 +1,9 @@
 # pytorch_diffusion + derived encoder decoder
 import math
+
 import torch
 import torch.nn as nn
-import numpy as np
-from einops import rearrange
-
-from ldm.util import instantiate_from_config
-from ldm.modules.attention import LinearAttention
+from einops import repeat
 
 
 def get_timestep_embedding(timesteps, embedding_dim):
@@ -191,6 +188,17 @@ class AttnBlock(nn.Module):
 
         return x + h_
 
+class FixedPositionalEmbedding(nn.Module):
+    def __init__(self, dim):
+        super().__init__()
+        inv_freq = 1. / (10000 ** (torch.arange(0, dim, 2).float() / dim))
+        self.register_buffer('inv_freq', inv_freq)
+
+    def forward(self, x):
+        t = torch.arange(x.shape[-1], device=x.device).type_as(self.inv_freq)
+        sinusoid_inp = torch.einsum('i , j -> i j', t, self.inv_freq)
+        emb = torch.cat((sinusoid_inp.sin(), sinusoid_inp.cos()), dim=-1)
+        return torch.cat([x, repeat(emb, 't h -> b h t', b=x.shape[0])], dim=1)
 
 class Encoder(nn.Module):
     def __init__(self, *, x_channels, middle_channels, z_channels,
@@ -199,9 +207,14 @@ class Encoder(nn.Module):
         super().__init__()
         self.num_resolutions = len(channel_mult)
         self.num_res_blocks = num_res_blocks
+        self.position_embedding = FixedPositionalEmbedding(middle_channels)
+
+        # position embedding
+        inv_freq = 1. / (10000 ** (torch.arange(0, middle_channels, 2).float() / middle_channels))
+        self.register_buffer('inv_freq', inv_freq)
 
         # downsampling
-        self.conv_in = torch.nn.Conv1d(x_channels,
+        self.conv_in = torch.nn.Conv1d((x_channels + middle_channels),
                                        middle_channels,
                                        kernel_size=3,
                                        stride=1,
@@ -251,8 +264,11 @@ class Encoder(nn.Module):
                                         padding=1)
 
     def forward(self, x):
+        # position embedding
+        h = self.position_embedding(x)
+
         # downsampling
-        h = self.conv_in(x)
+        h = self.conv_in(h)
         for i_level in range(self.num_resolutions):
             for i_block in range(self.num_res_blocks):
                 h = self.down[i_level].block[i_block](h)
