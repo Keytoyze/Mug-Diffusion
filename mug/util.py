@@ -1,4 +1,5 @@
 import importlib
+import math
 
 import torch
 import numpy as np
@@ -73,6 +74,48 @@ def count_params(model, verbose=False):
     if verbose:
         print(f"{model.__class__.__name__} has {total_params * 1.e-6:.2f} M params.")
     return total_params
+
+
+def count_beatmap_features_embedding(x):
+    if x['type'] == 'numeric':
+        cur_count = int(math.ceil((x['max'] - x['min']) / x['interval'])) + 1
+    elif x['type'] == 'category':
+        cur_count = len(x['category']) + 1
+    elif x['type'] == 'bool':
+        cur_count = 3
+    else:
+        raise ValueError(str(x))
+    return cur_count
+
+def feature_dict_to_embedding_ids(feature_dict, feature_yaml):
+    emb_ids = []
+    current_emb_count = 0
+    for x in feature_yaml:
+        value = feature_dict.get(x['name'], None)
+        if value is None:
+            inter_index = 0  # missing
+        else:
+            if x['type'] == 'numeric':
+                value = max(x['min'], min(x['max'], value))
+                inter_index = int((value - x['min']) / x['interval'])
+            elif x['type'] == 'bool':
+                inter_index = value
+            else:  # category
+                try:
+                    inter_index = x['category'].index(value)
+                except IndexError:
+                    inter_index = -1
+            inter_index += 1  # 0 is missing
+        for _ in range(x.get("count", 1)):
+            emb_ids.append(inter_index + current_emb_count)
+            current_emb_count += count_beatmap_features_embedding(x)
+    return emb_ids
+
+def count_beatmap_features(feature_yaml):
+    count = 0
+    for x in feature_yaml:
+        count += count_beatmap_features_embedding(x) * x.get('count', 1)
+    return count
 
 
 def instantiate_from_config(config):
@@ -211,3 +254,25 @@ def load_dict_from_batch(dict_data, i):
         else:
             result[k] = dict_data[k][i]
     return result
+
+if __name__ == '__main__':
+    import yaml
+    feature_yaml = yaml.safe_load(
+        open("configs\mug\mania_beatmap_features.yaml")
+    )
+    print(feature_dict_to_embedding_ids(
+        {"sr": 6.4, "ln_ratio": 0.0, "rc": True},
+        feature_yaml
+    ))
+    print(feature_dict_to_embedding_ids(
+        {"sr": 6.2, "ln_ratio": 0.5, "rc": False},
+        feature_yaml
+    ))
+    print(feature_dict_to_embedding_ids(
+        {"sr": 0, "ln_ratio": 0.5, "rc": True},
+        feature_yaml
+    ))
+    print(feature_dict_to_embedding_ids(
+        {"sr": 0.6, "hb": True},
+        feature_yaml
+    ))

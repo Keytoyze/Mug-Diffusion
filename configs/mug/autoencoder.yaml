@@ -1,11 +1,11 @@
 model:
   base_learning_rate: 4.5e-6
-  target: mug.model.autoencoder.AutoencoderKL
+  target: mug.firststage.autoencoder.AutoencoderKL
   params:
     monitor: "val/loss"
-    z_l2_reg: 0.00001
+    kl_weight: 0.000001
     lossconfig:
-      target: mug.model.autoencoder.ManiaReconstructLoss
+      target: mug.firststage.losses.ManiaReconstructLoss
       params:
         weight_start_offset: 0.5
         weight_holding: 0.5
@@ -15,11 +15,9 @@ model:
     ddconfig:
       x_channels: 16 # key_count * 4
       middle_channels: 64
-      z_channels: 64
+      z_channels: 32
       channel_mult: [ 1,1,2,2,4,4 ]  # num_down = len(ch_mult)-1
-      num_res_blocks: 2
-      attn_scales: [ ]
-#      attn_scales: [ 4,5 ]
+      num_res_blocks: 1
 
 
 data:
