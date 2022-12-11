@@ -33,7 +33,7 @@ class ManiaReconstructLoss(torch.nn.Module):
         tp = true_start == predict_start
         tp_valid = tp * valid_flag
         acc_start = (torch.sum(tp_valid) /
-                     (torch.sum(valid_flag) / key_count + 1e-5)
+                     (torch.sum(valid_flag) + 1e-5) / key_count
                      ).item()
         precision_start = (torch.sum(tp_valid * predict_start) /
                            (torch.sum(predict_start * valid_flag) + 1e-5)

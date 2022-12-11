@@ -83,7 +83,7 @@ class AutoencoderKL(pl.LightningModule):
     def training_step(self, batch, batch_idx):
         loss, log_dict = self.step(batch, 'train', sample_posterior=True)
         self.log("loss", loss, prog_bar=True, logger=True, on_step=True, on_epoch=True)
-        self.log_dict(log_dict, prog_bar=True, logger=True, on_step=True, on_epoch=False)
+        self.log_dict(log_dict, prog_bar=False, logger=True, on_step=True, on_epoch=False)
         return loss
 
     def validation_step(self, batch, batch_idx):
