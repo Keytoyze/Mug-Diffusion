@@ -60,13 +60,6 @@ class AutoencoderKL(pl.LightningModule):
         dec = self.decode(h)
         return dec, z
 
-    def get_input(self, batch, k):
-        x = batch[k]
-        if len(x.shape) == 3:
-            x = x[..., None]
-        x = x.permute(0, 3, 1, 2).to(memory_format=torch.contiguous_format).float()
-        return x
-
     def step(self, batch, split, sample_posterior):
         notes = batch['note']
         valid_flag = batch['valid_flag']

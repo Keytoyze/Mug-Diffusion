@@ -1,13 +1,55 @@
+import os.path
+import shutil
 from functools import partial
 
 import numpy as np
 import pytorch_lightning as pl
 import torch
 import torch.nn as nn
-from einops import rearrange
 from tqdm import tqdm
 
-from mug.util import exists, default, instantiate_from_config
+from mug.util import exists, default, instantiate_from_config, load_dict_from_batch
+from mug.data import convertor
+
+
+def disabled_train(self, mode=True):
+    """Overwrite model.train with this function to make sure train/eval mode
+    does not change anymore."""
+    return self
+
+
+class MugDiffusionWrapper(nn.Module):
+
+    def __init__(self, unet_config, first_stage_config, wave_stage_config, cond_stage_config):
+        super().__init__()
+        self.unet_model = instantiate_from_config(unet_config)
+        self.first_stage_model = self.instantiate_first_stage(first_stage_config)
+        self.wave_model = instantiate_from_config(wave_stage_config)
+        self.cond_stage_model = instantiate_from_config(cond_stage_config)
+
+    def instantiate_first_stage(self, config):
+        model = instantiate_from_config(config)
+        model = model.eval()
+        model.train = disabled_train
+        for param in model.parameters():
+            param.requires_grad = False
+        return model
+
+    def wave_output(self, batch):
+        return self.wave_model(batch['audio'])
+
+    def cond_output(self, batch):
+        return self.cond_stage_model(batch['feature'])
+
+    def encode(self, batch):
+        return self.first_stage_model.encode(batch['note']).mode()
+
+    def decode(self, x):
+        return self.first_stage_model.decode(x)
+
+    def forward(self, x, t, c, w):
+        x_input = torch.cat([x, w], dim=1)
+        return self.unet_model(x_input, t, c)
 
 
 class DDPM(pl.LightningModule):
@@ -17,6 +59,8 @@ class DDPM(pl.LightningModule):
                  first_stage_config,
                  wave_stage_config,
                  cond_stage_config,
+                 z_channels,
+                 z_length,
                  timesteps=1000,
                  beta_schedule="linear",
                  loss_type="l2",
@@ -24,10 +68,8 @@ class DDPM(pl.LightningModule):
                  ignore_keys=[],
                  load_only_unet=False,
                  monitor="val/loss",
-                 first_stage_key="image",
-                 image_size=256,
-                 channels=3,
                  log_every_t=100,
+                 log_index=0,
                  clip_denoised=True,
                  linear_start=1e-4,
                  linear_end=2e-2,
@@ -49,10 +91,11 @@ class DDPM(pl.LightningModule):
         self.cond_stage_model = None
         self.clip_denoised = clip_denoised
         self.log_every_t = log_every_t
-        self.first_stage_key = first_stage_key
-        self.image_size = image_size  # try conv?
-        self.channels = channels
-        self.model = instantiate_from_config(unet_config)
+        self.z_channels = z_channels
+        self.z_length = z_length
+        self.log_index = log_index
+        self.model = MugDiffusionWrapper(unet_config, first_stage_config, wave_stage_config,
+                                         cond_stage_config)
 
         self.use_scheduler = scheduler_config is not None
         if self.use_scheduler:
@@ -130,24 +173,13 @@ class DDPM(pl.LightningModule):
                     2 * self.posterior_variance * to_torch(alphas) * (1 - self.alphas_cumprod))
         elif self.parameterization == "x0":
             lvlb_weights = 0.5 * np.sqrt(torch.Tensor(alphas_cumprod)) / (
-                        2. * 1 - torch.Tensor(alphas_cumprod))
+                    2. * 1 - torch.Tensor(alphas_cumprod))
         else:
             raise NotImplementedError("mu not supported")
         # TODO how to choose this term
         lvlb_weights[0] = lvlb_weights[1]
         self.register_buffer('lvlb_weights', lvlb_weights, persistent=False)
         assert not torch.isnan(self.lvlb_weights).all()
-
-    def summary(self):
-        import torchsummary
-        torchsummary.summary(self.model, [
-            (64, 256),  # note input (32) + wave input (32), C / T
-            (1,),  # time step
-            (64, 254)  # context input, C2 / T2
-        ],
-                             col_names=("output_size", "num_params", "kernel_size"),
-                             depth=10
-                             )
 
     def init_from_ckpt(self, path, ignore_keys=list(), only_model=False):
         sd = torch.load(path, map_location="cpu")
@@ -169,18 +201,6 @@ class DDPM(pl.LightningModule):
         if len(unexpected) > 0:
             print(f"Unexpected Keys: {unexpected}")
 
-    def q_mean_variance(self, x_start, t):
-        """
-        Get the distribution q(x_t | x_0).
-        :param x_start: the [N x C x ...] tensor of noiseless inputs.
-        :param t: the number of diffusion steps (minus 1). Here, 0 means one step.
-        :return: A tuple (mean, variance, log_variance), all of x_start's shape.
-        """
-        mean = (extract_into_tensor(self.sqrt_alphas_cumprod, t, x_start.shape) * x_start)
-        variance = extract_into_tensor(1.0 - self.alphas_cumprod, t, x_start.shape)
-        log_variance = extract_into_tensor(self.log_one_minus_alphas_cumprod, t, x_start.shape)
-        return mean, variance, log_variance
-
     def predict_start_from_noise(self, x_t, t, noise):
         return (
                 extract_into_tensor(self.sqrt_recip_alphas_cumprod, t, x_t.shape) * x_t -
@@ -197,51 +217,69 @@ class DDPM(pl.LightningModule):
                                                              x_t.shape)
         return posterior_mean, posterior_variance, posterior_log_variance_clipped
 
-    def p_mean_variance(self, x, t, clip_denoised: bool):
-        model_out = self.model(x, t)
-        if self.parameterization == "eps":
-            x_recon = self.predict_start_from_noise(x, t=t, noise=model_out)
-        elif self.parameterization == "x0":
-            x_recon = model_out
-        if clip_denoised:
-            x_recon.clamp_(-1., 1.)
-
-        model_mean, posterior_variance, posterior_log_variance = self.q_posterior(x_start=x_recon,
-                                                                                  x_t=x, t=t)
-        return model_mean, posterior_variance, posterior_log_variance
-
     @torch.no_grad()
-    def p_sample(self, x, t, clip_denoised=True, repeat_noise=False):
-        b, *_, device = *x.shape, x.device
-        model_mean, _, model_log_variance = self.p_mean_variance(x=x, t=t,
-                                                                 clip_denoised=clip_denoised)
-        noise = noise_like(x.shape, device, repeat_noise)
-        # no noise when t == 0
-        nonzero_mask = (1 - (t == 0).float()).reshape(b, *((1,) * (len(x.shape) - 1)))
-        return model_mean + nonzero_mask * (0.5 * model_log_variance).exp() * noise
-
-    @torch.no_grad()
-    def p_sample_loop(self, shape, return_intermediates=False):
+    def log_beatmap(self, batch, count, **kwargs):
         device = self.betas.device
-        b = shape[0]
-        img = torch.randn(shape, device=device)
-        intermediates = [img]
+        batch_size = batch['note'].shape[0]
+        x = torch.randn((batch_size, self.z_channels, self.z_length), device=device)
+        w = self.model.wave_output(batch)
+        c = self.model.cond_output(batch)
+        intermediates = []
         for i in tqdm(reversed(range(0, self.num_timesteps)), desc='Sampling t',
                       total=self.num_timesteps):
-            img = self.p_sample(img, torch.full((b,), i, device=device, dtype=torch.long),
-                                clip_denoised=self.clip_denoised)
+            t = torch.full((batch_size,), i, device=device, dtype=torch.long)
+            model_out = self.model.forward(x, t, c, w)
+            if self.parameterization == "eps":
+                x_recon = self.predict_start_from_noise(x, t=t, noise=model_out)
+            elif self.parameterization == "x0":
+                x_recon = model_out
+            else:
+                raise
+            if self.clip_denoised:
+                x_recon.clamp_(-1., 1.)
+            model_mean = (
+                    extract_into_tensor(self.posterior_mean_coef1, t, x.shape) * x_recon +
+                    extract_into_tensor(self.posterior_mean_coef2, t, x.shape) * x
+            )
+            model_log_variance = extract_into_tensor(self.posterior_log_variance_clipped, t,
+                                                     x.shape)
+            noise = noise_like(x.shape, device, False)
+            # no noise when t == 0
+            nonzero_mask = (1 - (t == 0).float()).reshape(batch_size, *((1,) * (len(x.shape) - 1)))
+            x = model_mean + nonzero_mask * (0.5 * model_log_variance).exp() * noise
             if i % self.log_every_t == 0 or i == self.num_timesteps - 1:
-                intermediates.append(img)
-        if return_intermediates:
-            return img, intermediates
-        return img
+                intermediates.append((self.model.decode(x).cpu().numpy(), i))
 
-    @torch.no_grad()
-    def sample(self, batch_size=16, return_intermediates=False):
-        image_size = self.image_size
-        channels = self.channels
-        return self.p_sample_loop((batch_size, channels, image_size, image_size),
-                                  return_intermediates=return_intermediates)
+        for i in range(batch_size):
+            if i >= count:
+                break
+            path = batch['meta']['path'][i]
+
+            save_dir = os.path.join(self.logger.save_dir, "beatmaps", str(self.log_index),
+                                    os.path.basename(os.path.dirname(path)))
+            os.makedirs(save_dir, exist_ok=True)
+
+            convertor_params = load_dict_from_batch(batch['convertor'], i)
+            convertor_params['from_logits'] = True
+            _, meta = convertor.parse_osu_file(path, convertor_params)
+
+            shutil.copyfile(path, os.path.join(save_dir, os.path.basename(path)))
+            shutil.copyfile(meta.audio, os.path.join(save_dir, os.path.basename(meta.audio)))
+
+            for x, t in intermediates:
+                target_path = os.path.join(save_dir,
+                                           os.path.basename(path).replace(".osu", f"_step={t}.osu"))
+                convertor.save_osu_file(meta, x[i], target_path,
+                                        {"Version": f"{meta.version}, step={t}"})
+        self.log_index += 1
+
+    def summary(self):
+        print("Summary wave:")
+        self.model.wave_model.summary()
+        print("Summary cond:")
+        self.model.cond_stage_model.summary()
+        print("Summary unet:")
+        self.model.unet_model.summary()
 
     def q_sample(self, x_start, t, noise=None):
         """
@@ -266,10 +304,12 @@ class DDPM(pl.LightningModule):
 
         return loss
 
-    def p_losses(self, x_start, t, noise=None):
+    def p_losses(self, x_start, t, batch, noise=None):
         noise = default(noise, lambda: torch.randn_like(x_start))
         x_noisy = self.q_sample(x_start=x_start, t=t, noise=noise)
-        model_out = self.model(x_noisy, t)
+        model_out = self.model.forward(x_noisy, t,
+                                       c=self.model.cond_output(batch),
+                                       w=self.model.wave_output(batch))
 
         loss_dict = {}
         if self.parameterization == "eps":
@@ -279,7 +319,7 @@ class DDPM(pl.LightningModule):
         else:
             raise NotImplementedError(f"Paramterization {self.parameterization} not yet supported")
 
-        loss = self.get_loss(model_out, target, mean=False).mean(dim=[1, 2, 3])
+        loss = self.get_loss(model_out, target, mean=False).mean(dim=[1, 2])
 
         log_prefix = 'train' if self.training else 'val'
 
@@ -295,25 +335,17 @@ class DDPM(pl.LightningModule):
 
         return loss, loss_dict
 
-    def forward(self, x, *args, **kwargs):
+    def forward(self, batch):
+        x = self.model.encode(batch)
         t = torch.randint(0, self.num_timesteps, (x.shape[0],), device=self.device).long()
-        return self.p_losses(x, t, *args, **kwargs)
-
-    def get_input(self, batch, k):
-        x = batch[k]
-        if len(x.shape) == 3:
-            x = x[..., None]
-        x = rearrange(x, 'b h w c -> b c h w')
-        x = x.to(memory_format=torch.contiguous_format).float()
-        return x
+        return self.p_losses(x, t, batch)
 
     def shared_step(self, batch):
-        x = self.get_input(batch, self.first_stage_key)
-        loss, loss_dict = self(x)
+        loss, loss_dict = self(batch)
         return loss, loss_dict
 
     def training_step(self, batch, batch_idx):
-        loss, loss_dict = self.shared_step(batch)
+        loss, loss_dict = self(batch)
 
         self.log_dict(loss_dict, prog_bar=True,
                       logger=True, on_step=True, on_epoch=True)
@@ -329,7 +361,7 @@ class DDPM(pl.LightningModule):
 
     @torch.no_grad()
     def validation_step(self, batch, batch_idx):
-        _, loss_dict = self.shared_step(batch)
+        _, loss_dict = self(batch)
         self.log_dict(loss_dict, prog_bar=False, logger=True, on_step=False, on_epoch=True)
 
     def configure_optimizers(self):
@@ -344,7 +376,8 @@ class DDPM(pl.LightningModule):
 def make_beta_schedule(schedule, n_timestep, linear_start=1e-4, linear_end=2e-2, cosine_s=8e-3):
     if schedule == "linear":
         betas = (
-                torch.linspace(linear_start ** 0.5, linear_end ** 0.5, n_timestep, dtype=torch.float64) ** 2
+                torch.linspace(linear_start ** 0.5, linear_end ** 0.5, n_timestep,
+                               dtype=torch.float64) ** 2
         )
 
     elif schedule == "cosine":
@@ -367,12 +400,15 @@ def make_beta_schedule(schedule, n_timestep, linear_start=1e-4, linear_end=2e-2,
     print("beta:", betas.tolist())
     return betas
 
+
 def extract_into_tensor(a, t, x_shape):
     b, *_ = t.shape
     out = a.gather(-1, t)
     return out.reshape(b, *((1,) * (len(x_shape) - 1)))
 
+
 def noise_like(shape, device, repeat=False):
-    repeat_noise = lambda: torch.randn((1, *shape[1:]), device=device).repeat(shape[0], *((1,) * (len(shape) - 1)))
+    repeat_noise = lambda: torch.randn((1, *shape[1:]), device=device).repeat(shape[0], *(
+            (1,) * (len(shape) - 1)))
     noise = lambda: torch.randn(shape, device=device)
     return repeat_noise() if repeat else noise()

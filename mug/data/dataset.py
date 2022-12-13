@@ -37,15 +37,10 @@ class OsuDataset(Dataset):
         self.beatmap_paths = self.filter_beatmap_paths(self.beatmap_paths)
 
         self.feature_yaml = None
-        self.feature_conn = None
         self.with_feature = with_feature
         self.feature_dropout_p = feature_dropout_p
         if feature_yaml is not None and with_feature:
             self.feature_yaml = yaml.safe_load(open(feature_yaml))
-            self.feature_conn = sqlite3.Connection(os.path.join(
-                os.path.dirname(txt_file),
-                "feature.db"
-            ))
 
         if test_txt_file is not None:
             with open(test_txt_file, "r", encoding='utf-8') as f:
@@ -69,12 +64,12 @@ class OsuDataset(Dataset):
         self.n_fft = n_fft
         self.max_duration = self.audio_frame_duration * max_audio_frame
         self.cache_dir = cache_dir
-        self.error_audio = []
+        self.error_files = []
         if cache_dir is not None:
             os.makedirs(cache_dir, exist_ok=True)
             error_path = os.path.join(self.cache_dir, "error.txt")
             if os.path.isfile(error_path):
-                self.error_audio = list(map(lambda x: x.strip(), open(error_path).readlines()))
+                self.error_files = list(map(lambda x: x.strip(), open(error_path).readlines()))
 
     def __len__(self):
         return len(self.beatmap_paths)
@@ -108,31 +103,27 @@ class OsuDataset(Dataset):
         audio_path = audio_path.strip()
         if self.cache_dir is None:
             return self.load_audio_without_cache(audio_path)
-        if audio_path in self.error_audio:
-            raise ValueError()
         cache_name = (f"{os.path.basename(os.path.dirname(audio_path))}-"
                       f"{os.path.basename(audio_path)}.npz")
         cache_path = os.path.join(self.cache_dir, cache_name)
         if os.path.isfile(cache_path):
             return np.load(cache_path)['y']
 
-        if not os.path.isfile(audio_path):
-            raise ValueError("File not exist: " + audio_path)
-        try:
-            y = self.load_audio_without_cache(audio_path)
-        except:
-            self.error_audio.append(audio_path)
-            with open(os.path.join(self.cache_dir, "error.txt"), "a+") as f:
-                f.write(audio_path + "\n")
-            raise
+        # if not os.path.isfile(audio_path):
+        #     raise ValueError("File not exist: " + audio_path)
+        y = self.load_audio_without_cache(audio_path)
         np.savez_compressed(cache_path, y=y)
         return y
 
     def load_feature(self, path, dropout_prob=0):
         name = os.path.basename(path)
         set_name = os.path.basename(os.path.dirname(path))
-        cursor = self.feature_conn.execute("SELECT * FROM Feature WHERE name = ? AND set_name = ?",
-                                           [name, set_name])
+        feature_conn = sqlite3.Connection(os.path.join(
+            os.path.dirname(self.data_paths),
+            "feature.db"
+        ))
+        cursor = feature_conn.execute("SELECT * FROM Feature WHERE name = ? AND set_name = ?",
+                                      [name, set_name])
         column_names = [description[0] for description in list(cursor.description)]
         result = cursor.fetchone()
         feature_dict = {}
@@ -141,6 +132,7 @@ class OsuDataset(Dataset):
                 if random.random() >= dropout_prob:
                     feature_dict[column_names[i]] = result[i]
         emb_ids = util.feature_dict_to_embedding_ids(feature_dict, self.feature_yaml)
+        # print(f"{path} -> {emb_ids}")
         return emb_ids
 
     def __getitem__(self, i):
@@ -173,15 +165,21 @@ class OsuDataset(Dataset):
                 if t < self.max_audio_frame:
                     audio = np.concatenate([
                         audio,
-                        np.zeros(self.n_mels, self.max_audio_frame - t)
+                        np.zeros((self.n_mels, self.max_audio_frame - t), dtype=np.float32)
                     ], axis=1)
                 elif t > self.max_audio_frame:
                     audio = audio[:, :self.max_audio_frame]
                 example["audio"] = audio
             if self.with_feature:
-                example["feature"] = self.load_feature(beatmap_meta.path, self.feature_dropout_p)
+                example["feature"] = np.asarray(
+                    self.load_feature(beatmap_meta.path, self.feature_dropout_p)
+                )
             return example
-        except:
+        except Exception as e:
+            if path not in self.error_files:
+                with open(os.path.join(self.cache_dir, "error.txt"), "a+") as f:
+                    f.write(f"{path}: {e}\n")
+                self.error_files.append(path)
             # raise
             return self.__getitem__(random.randint(0, len(self.beatmap_paths) - 1))
 

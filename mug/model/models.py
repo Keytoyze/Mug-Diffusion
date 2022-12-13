@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from einops import repeat
 
-from mug.model.util import conv_nd
+from mug.model.util import conv_nd, checkpoint
 
 
 def Normalize(in_channels, num_groups=32):
@@ -91,12 +91,13 @@ class Downsample(nn.Module):
 
 class ResnetBlock(nn.Module):
     def __init__(self, *, in_channels, out_channels=None, conv_shortcut=False,
-                 dropout, temb_channels=512, dims=1, num_groups=32):
+                 dropout, temb_channels=512, dims=1, num_groups=32, use_checkpoint=False):
         super().__init__()
         self.in_channels = in_channels
         out_channels = in_channels if out_channels is None else out_channels
         self.out_channels = out_channels
         self.use_conv_shortcut = conv_shortcut
+        self.use_checkpoint = use_checkpoint
 
         self.norm1 = Normalize(in_channels, num_groups)
         self.conv1 = conv_nd(dims, in_channels,
@@ -127,15 +128,17 @@ class ResnetBlock(nn.Module):
                                             kernel_size=1,
                                             stride=1,
                                             padding=0)
+    
+    def forward(self, x):
+        return checkpoint(
+            self._forward, (x, ), self.parameters(), self.use_checkpoint
+        )
 
-    def forward(self, x, temb=None):
+    def _forward(self, x):
         h = x
         h = self.norm1(h)
         h = F.silu(h)
         h = self.conv1(h)
-
-        if temb is not None:
-            h = h + self.temb_proj(F.silu(temb))[:, :, None, None]
 
         h = self.norm2(h)
         h = F.silu(h)

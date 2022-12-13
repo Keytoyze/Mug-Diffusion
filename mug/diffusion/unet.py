@@ -442,20 +442,19 @@ class UNetModel(nn.Module):
         h = h.type(x.dtype)
         return self.out(h)
 
-
-if __name__ == '__main__':
-    import torchsummary
-
-    torchsummary.summary(
-        UNetModel(in_channels=64, model_channels=64, out_channels=32,
-                  num_res_blocks=1, attention_resolutions=[8, 4, 2],
-                  channel_mult=[1, 2, 3, 4], num_heads=8,
-                  context_dim=64),
-        [
+    def summary(self):
+        import torchsummary
+        torchsummary.summary(self, [
             (64, 256),  # note input (32) + wave input (32), C / T
             (1,),  # time step
-            (64, 254)  # context input, C2 / T2
+            (128, 254)  # context input, C2 / T2
         ],
-        col_names=("output_size", "num_params", "kernel_size"),
-        depth=10
-    )
+                             col_names=("output_size", "num_params", "kernel_size"),
+                             depth=10, device=th.device("cpu"))
+
+
+if __name__ == '__main__':
+    UNetModel(in_channels=64, model_channels=64, out_channels=32,
+              num_res_blocks=1, attention_resolutions=[8, 4, 2],
+              channel_mult=[1, 2, 3, 4], num_heads=8,
+              context_dim=64).summary()

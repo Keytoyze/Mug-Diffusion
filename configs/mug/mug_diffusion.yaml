@@ -1,0 +1,102 @@
+model:
+  base_learning_rate: 5.0e-05
+  target: mug.diffusion.diffusion.DDPM
+  params:
+    linear_start: 0.00085
+    linear_end: 0.012
+    log_every_t: 10
+    timesteps: 50
+    z_channels: 32
+    z_length: 256
+    monitor: val/loss_simple
+
+    unet_config:
+      target: mug.diffusion.unet.UNetModel
+      params:
+        in_channels: 64
+        model_channels: 64
+        out_channels: 32
+        attention_resolutions: [ 8,4,2 ]
+        num_res_blocks: 1
+        channel_mult: [ 1,2,3,4 ]
+        num_heads: 8
+        context_dim: 128
+        use_checkpoint: true
+
+    first_stage_config:
+      target: mug.firststage.autoencoder.AutoencoderKL
+      params:
+        monitor: "val/loss"
+        ckpt_path: "logs/autoencoder_1layer/checkpoints/epoch=000982.ckpt"
+        kl_weight: 0.000001
+        ddconfig:
+          x_channels: 16 # key_count * 4
+          middle_channels: 64
+          z_channels: 32
+          channel_mult: [ 1,1,2,2,4,4 ]  # num_down = len(ch_mult)-1
+          num_res_blocks: 1
+        lossconfig:
+          target: torch.nn.Identity
+
+    cond_stage_config:
+      target: mug.cond.feature.BeatmapFeatureEmbedder
+      params:
+        path_to_yaml: "configs/mug/mania_beatmap_features.yaml"
+        embed_dim: 128
+
+    wave_stage_config:
+#      target: mug.cond.wave.MelspectrogramEncoder
+      target: mug.cond.wave.MelspectrogramEncoder1D
+      params:
+        n_freq: 128
+        middle_channels: 128
+        out_channels: 32
+        num_res_blocks: 1
+        use_checkpoint: true
+        channel_mult: [ 1,1,2,2,2,4,4 ]
+
+
+data:
+  target: main.DataModuleFromConfig
+  params:
+    batch_size: 2
+    wrap: False
+    num_workers: 4
+    common_params:
+      txt_file: "data/beatmap_4k/beatmap.txt"
+      sr: 22050
+      n_fft: 2048
+      max_audio_frame: 16384
+      n_mels: 128
+      cache_dir: "data/audio_cache/"
+      with_audio: true
+      with_feature: true
+      feature_yaml: "configs/mug/mania_beatmap_features.yaml"
+      # audio_window_frame = n_fft / sr / 4 = 0.02321995 s
+      # note_window_frame = 2 * audio_window_frame = 0.04643990 s
+      # max_duration = audio_window_frame * max_audio_frame = 380.4357 s = 6 min 20 s
+      # max_note_frame = max_audio_frame / 2 = 8192
+    train:
+      target: mug.data.dataset.OsuTrainDataset
+      params:
+        mirror_p: 0.3
+
+    validation:
+      target: mug.data.dataset.OsuValidDataset
+      params: {}
+#        test_txt_file: "data\\mug\\local_mania_4k_test.txt"
+
+
+lightning:
+  callbacks:
+    beatmap_logger:
+      target: mug.data.dataset.BeatmapLogger
+      params:
+        log_batch_idx: [ 0 ]
+        splits: [ 'val' ]
+        count: 16
+
+  trainer:
+    benchmark: True
+    accelerator: dp
+    accumulate_grad_batches: 2

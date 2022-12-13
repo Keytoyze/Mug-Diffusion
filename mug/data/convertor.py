@@ -44,7 +44,7 @@ def parse_osu_file(osu_path, convertor_params: Optional[dict]) -> Tuple[List[str
 
             if parsing_context == "[General]":
                 if line.startswith("AudioFilename"):
-                    meta.audio = os.path.join(os.path.dirname(os.path.realpath(osu_path)),
+                    meta.audio = os.path.join(os.path.dirname(osu_path),
                                               read_item(line))
                 elif line.startswith("Mode"):
                     meta.game_mode = int(read_item(line))
