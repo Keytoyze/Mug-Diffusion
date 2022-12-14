@@ -219,12 +219,17 @@ class DDPM(pl.LightningModule):
 
     @torch.no_grad()
     def log_beatmap(self, batch, count, **kwargs):
+        self.log_index += 1
+        if self.log_index % 10 != 1:
+            return
         device = self.betas.device
         batch_size = batch['note'].shape[0]
         x = torch.randn((batch_size, self.z_channels, self.z_length), device=device)
         w = self.model.wave_output(batch)
         c = self.model.cond_output(batch)
         intermediates = []
+        valid_flag = batch['valid_flag']
+        valid_flag = torch.unsqueeze(valid_flag, dim=1)  # [B, 1, T]
         for i in tqdm(reversed(range(0, self.num_timesteps)), desc='Sampling t',
                       total=self.num_timesteps):
             t = torch.full((batch_size,), i, device=device, dtype=torch.long)
@@ -247,8 +252,10 @@ class DDPM(pl.LightningModule):
             # no noise when t == 0
             nonzero_mask = (1 - (t == 0).float()).reshape(batch_size, *((1,) * (len(x.shape) - 1)))
             x = model_mean + nonzero_mask * (0.5 * model_log_variance).exp() * noise
+            x_decode = self.model.decode(x)
+            x_decode = x_decode * valid_flag
             if i % self.log_every_t == 0 or i == self.num_timesteps - 1:
-                intermediates.append((self.model.decode(x).cpu().numpy(), i))
+                intermediates.append((x_decode.cpu().numpy(), i))
 
         for i in range(batch_size):
             if i >= count:
@@ -264,14 +271,13 @@ class DDPM(pl.LightningModule):
             _, meta = convertor.parse_osu_file(path, convertor_params)
 
             shutil.copyfile(path, os.path.join(save_dir, os.path.basename(path)))
-            shutil.copyfile(meta.audio, os.path.join(save_dir, os.path.basename(meta.audio)))
+            os.symlink(os.path.abspath(meta.audio), os.path.join(save_dir, os.path.basename(meta.audio)))
 
             for x, t in intermediates:
                 target_path = os.path.join(save_dir,
                                            os.path.basename(path).replace(".osu", f"_step={t}.osu"))
                 convertor.save_osu_file(meta, x[i], target_path,
                                         {"Version": f"{meta.version}, step={t}"})
-        self.log_index += 1
 
     def summary(self):
         print("Summary wave:")

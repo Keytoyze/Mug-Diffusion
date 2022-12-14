@@ -3,6 +3,7 @@ import random
 from abc import abstractmethod, ABCMeta
 from dataclasses import dataclass, field, asdict
 from typing import List, Tuple, Optional
+import string
 
 import numpy as np
 
@@ -27,6 +28,10 @@ class BeatmapMeta:
 def read_item(line):
     return line.split(":")[-1].strip()
 
+valid_chars = "-_.()[]/\\' %s%s" % (string.ascii_letters, string.digits)
+
+def slugify(text):
+    return "".join(c for c in text if c in valid_chars)
 
 def parse_osu_file(osu_path, convertor_params: Optional[dict]) -> Tuple[List[str], BeatmapMeta]:
     data = open(osu_path, 'r', encoding='utf-8').read().split("\n")
@@ -46,6 +51,13 @@ def parse_osu_file(osu_path, convertor_params: Optional[dict]) -> Tuple[List[str
                 if line.startswith("AudioFilename"):
                     meta.audio = os.path.join(os.path.dirname(osu_path),
                                               read_item(line))
+                    if not os.path.isfile(meta.audio):
+                        meta.audio = slugify(meta.audio)
+                        if not os.path.isfile(meta.audio):
+                            meta.audio = os.path.join(
+                                os.path.dirname(meta.audio),
+                                os.path.basename(meta.audio).lower()
+                            )
                 elif line.startswith("Mode"):
                     meta.game_mode = int(read_item(line))
                     if convertor_params is not None:
