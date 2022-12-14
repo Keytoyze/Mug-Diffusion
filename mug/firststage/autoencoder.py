@@ -5,6 +5,7 @@ import pytorch_lightning as pl
 from mug.data import convertor
 from mug.model.models import *
 from mug.util import instantiate_from_config, load_dict_from_batch
+import shutil
 
 
 class AutoencoderKL(pl.LightningModule):
@@ -14,7 +15,8 @@ class AutoencoderKL(pl.LightningModule):
                  ckpt_path=None,
                  ignore_keys=None,
                  monitor=None,
-                 kl_weight=0.0
+                 kl_weight=0.0,
+                 scale=1.0
                  ):
         super().__init__()
         if ignore_keys is None:
@@ -22,6 +24,7 @@ class AutoencoderKL(pl.LightningModule):
         self.encoder = Encoder(**ddconfig)
         self.decoder = Decoder(**ddconfig)
         self.loss = instantiate_from_config(lossconfig)
+        self.scale = scale
 
         self.kl_weight = kl_weight
         if monitor is not None:
@@ -44,11 +47,11 @@ class AutoencoderKL(pl.LightningModule):
 
     def encode(self, x):
         h = self.encoder(x)
-        posterior = DiagonalGaussianDistribution(h)
+        posterior = DiagonalGaussianDistribution(h, scale=self.scale)
         return posterior
 
     def decode(self, z):
-        dec = self.decoder(z)
+        dec = self.decoder(z / self.scale)
         return dec
 
     def forward(self, input, sample_posterior=True):
@@ -70,6 +73,8 @@ class AutoencoderKL(pl.LightningModule):
         loss += kl_loss * self.kl_weight
         log_dict['kl_loss'] = kl_loss.detach().item()
         log_dict['kl_var'] = z.std.mean().detach().item()
+        log_dict['z_std'] = torch.std(z.mode()).mean()
+        log_dict['z_mean'] = z.mode().mean()
         log_dict = dict((f'{split}/{k}', v) for k, v in log_dict.items())
         return loss, log_dict
 
@@ -105,11 +110,24 @@ class AutoencoderKL(pl.LightningModule):
             if i >= count:
                 break
             path = batch['meta']['path'][i]
+            save_dir = os.path.join(self.logger.save_dir, "beatmaps",
+                                    os.path.basename(os.path.dirname(path)))
+            os.makedirs(save_dir, exist_ok=True)
+
             convertor_params = load_dict_from_batch(batch['convertor'], i)
             convertor_params['from_logits'] = True
             _, meta = convertor.parse_osu_file(path, convertor_params)
 
-            target_path = path.replace(".osu", f"_autoencoder.osu")
+            shutil.copyfile(path, os.path.join(save_dir, os.path.basename(path)))
+            try:
+                os.symlink(os.path.abspath(meta.audio),
+                           os.path.join(save_dir, os.path.basename(meta.audio)))
+            except:
+                shutil.copyfile(os.path.abspath(meta.audio),
+                                os.path.join(save_dir, os.path.basename(meta.audio)))
+
+            target_path = os.path.join(save_dir,
+                                       os.path.basename(path).replace(".osu", f"_autoencoder.osu"))
             convertor.save_osu_file(meta, reconstructions[i].cpu().numpy(), target_path,
                                     {"Version": f"{meta.version}_autoencoder"})
 
@@ -286,19 +304,20 @@ class Decoder(nn.Module):
         return h
 
 class DiagonalGaussianDistribution(object):
-    def __init__(self, parameters, deterministic=False):
+    def __init__(self, parameters, deterministic=False, scale=1.0):
         self.parameters = parameters
         self.mean, self.logvar = torch.chunk(parameters, 2, dim=1)
         self.logvar = torch.clamp(self.logvar, -30.0, 20.0)
         self.deterministic = deterministic
         self.std = torch.exp(0.5 * self.logvar)
         self.var = torch.exp(self.logvar)
+        self.scale = scale
         if self.deterministic:
             self.var = self.std = torch.zeros_like(self.mean).to(device=self.parameters.device)
 
     def sample(self):
         x = self.mean + self.std * torch.randn(self.mean.shape).to(device=self.parameters.device)
-        return x
+        return x * self.scale
 
     def kl(self, other=None):
         if self.deterministic:
@@ -313,7 +332,7 @@ class DiagonalGaussianDistribution(object):
                     + self.var / other.var - 1.0 - self.logvar + other.logvar)
 
     def mode(self):
-        return self.mean
+        return self.mean * self.scale
 
 
 if __name__ == '__main__':

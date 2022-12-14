@@ -150,6 +150,7 @@ class DDPM(pl.LightningModule):
         self.register_buffer('sqrt_alphas_cumprod', to_torch(np.sqrt(alphas_cumprod)))
         self.register_buffer('sqrt_one_minus_alphas_cumprod',
                              to_torch(np.sqrt(1. - alphas_cumprod)))
+        print("sqrt_one_minus_alphas_cumprod:", self.sqrt_one_minus_alphas_cumprod.tolist())
         self.register_buffer('log_one_minus_alphas_cumprod', to_torch(np.log(1. - alphas_cumprod)))
         self.register_buffer('sqrt_recip_alphas_cumprod', to_torch(np.sqrt(1. / alphas_cumprod)))
         self.register_buffer('sqrt_recipm1_alphas_cumprod',
@@ -220,7 +221,7 @@ class DDPM(pl.LightningModule):
     @torch.no_grad()
     def log_beatmap(self, batch, count, **kwargs):
         self.log_index += 1
-        if self.log_index % 10 != 1:
+        if self.log_index % 50 != 1:
             return
         device = self.betas.device
         batch_size = batch['note'].shape[0]
@@ -228,11 +229,37 @@ class DDPM(pl.LightningModule):
         w = self.model.wave_output(batch)
         c = self.model.cond_output(batch)
         intermediates = []
+        intermediates_true = []
         valid_flag = batch['valid_flag']
+
+        debug_data = np.zeros((batch_size, 16 + 128, 16384))
+        debug_data[:, :16, np.arange(0, 16384, 2)] = batch['note'].cpu()
+        debug_data[:, 16:, :] = batch['audio'].cpu()
+        save_dir = os.path.join(self.logger.save_dir, "numpy")
+        os.makedirs(save_dir, exist_ok=True)
+
+        for i in range(batch_size):
+            if i >= count:
+                break
+            path = batch['meta']['path'][i]
+            np.save(os.path.join(save_dir, os.path.basename(path).replace("osu", "npy")), debug_data[i])
+
         valid_flag = torch.unsqueeze(valid_flag, dim=1)  # [B, 1, T]
         for i in tqdm(reversed(range(0, self.num_timesteps)), desc='Sampling t',
                       total=self.num_timesteps):
             t = torch.full((batch_size,), i, device=device, dtype=torch.long)
+
+            x_true = self.model.encode(batch)
+            x_true_noise = torch.randn_like(x_true)
+            x_noisy = self.q_sample(x_start=x_true, t=t, noise=x_true_noise)
+            x_true_decode = self.model.decode(x_noisy)
+            x_true_decode = x_true_decode * valid_flag
+            if i % self.log_every_t == 0 or i == self.num_timesteps - 1:
+                intermediates_true.append((x_true_decode.cpu().numpy(), i))
+
+            intermediates_true.append((batch['note'].cpu().numpy(), -1))
+
+
             model_out = self.model.forward(x, t, c, w)
             if self.parameterization == "eps":
                 x_recon = self.predict_start_from_noise(x, t=t, noise=model_out)
@@ -271,13 +298,22 @@ class DDPM(pl.LightningModule):
             _, meta = convertor.parse_osu_file(path, convertor_params)
 
             shutil.copyfile(path, os.path.join(save_dir, os.path.basename(path)))
-            os.symlink(os.path.abspath(meta.audio), os.path.join(save_dir, os.path.basename(meta.audio)))
+            try:
+                os.symlink(os.path.abspath(meta.audio), os.path.join(save_dir, os.path.basename(meta.audio)))
+            except:
+                shutil.copyfile(os.path.abspath(meta.audio), os.path.join(save_dir, os.path.basename(meta.audio)))
 
             for x, t in intermediates:
                 target_path = os.path.join(save_dir,
                                            os.path.basename(path).replace(".osu", f"_step={t}.osu"))
                 convertor.save_osu_file(meta, x[i], target_path,
                                         {"Version": f"{meta.version}, step={t}"})
+
+            for x, t in intermediates_true:
+                target_path = os.path.join(save_dir,
+                                           os.path.basename(path).replace(".osu", f"_t_step={t}.osu"))
+                convertor.save_osu_file(meta, x[i], target_path,
+                                        {"Version": f"{meta.version}, true, step={t}"})
 
     def summary(self):
         print("Summary wave:")
