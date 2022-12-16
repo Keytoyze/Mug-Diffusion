@@ -85,7 +85,8 @@ class DDPM(pl.LightningModule):
                  logvar_init=0.,
                  ):
         super().__init__()
-        assert parameterization in ["eps", "x0"], 'currently only supporting "eps" and "x0"'
+        assert parameterization in ["eps", "x0",
+                                    "recon"], 'currently only supporting "eps", "x0" and "recon"'
         self.parameterization = parameterization
         print(f"{self.__class__.__name__}: Running in {self.parameterization}-prediction mode")
         self.cond_stage_model = None
@@ -172,7 +173,7 @@ class DDPM(pl.LightningModule):
         if self.parameterization == "eps":
             lvlb_weights = self.betas ** 2 / (
                     2 * self.posterior_variance * to_torch(alphas) * (1 - self.alphas_cumprod))
-        elif self.parameterization == "x0":
+        elif self.parameterization == "x0" or self.parameterization == "recon":
             lvlb_weights = 0.5 * np.sqrt(torch.Tensor(alphas_cumprod)) / (
                     2. * 1 - torch.Tensor(alphas_cumprod))
         else:
@@ -242,7 +243,8 @@ class DDPM(pl.LightningModule):
             if i >= count:
                 break
             path = batch['meta']['path'][i]
-            np.save(os.path.join(save_dir, os.path.basename(path).replace("osu", "npy")), debug_data[i])
+            np.save(os.path.join(save_dir, os.path.basename(path).replace("osu", "npy")),
+                    debug_data[i])
 
         valid_flag = torch.unsqueeze(valid_flag, dim=1)  # [B, 1, T]
         for i in tqdm(reversed(range(0, self.num_timesteps)), desc='Sampling t',
@@ -259,16 +261,15 @@ class DDPM(pl.LightningModule):
 
             intermediates_true.append((batch['note'].cpu().numpy(), -1))
 
-
             model_out = self.model.forward(x, t, c, w)
             if self.parameterization == "eps":
                 x_recon = self.predict_start_from_noise(x, t=t, noise=model_out)
-            elif self.parameterization == "x0":
+            elif self.parameterization == "x0" or self.parameterization == "recon":
                 x_recon = model_out
             else:
                 raise
             if self.clip_denoised:
-                x_recon.clamp_(-1., 1.)
+                x_recon.clamp_(-10., 10.)
             model_mean = (
                     extract_into_tensor(self.posterior_mean_coef1, t, x.shape) * x_recon +
                     extract_into_tensor(self.posterior_mean_coef2, t, x.shape) * x
@@ -299,9 +300,11 @@ class DDPM(pl.LightningModule):
 
             shutil.copyfile(path, os.path.join(save_dir, os.path.basename(path)))
             try:
-                os.symlink(os.path.abspath(meta.audio), os.path.join(save_dir, os.path.basename(meta.audio)))
+                os.symlink(os.path.abspath(meta.audio),
+                           os.path.join(save_dir, os.path.basename(meta.audio)))
             except:
-                shutil.copyfile(os.path.abspath(meta.audio), os.path.join(save_dir, os.path.basename(meta.audio)))
+                shutil.copyfile(os.path.abspath(meta.audio),
+                                os.path.join(save_dir, os.path.basename(meta.audio)))
 
             for x, t in intermediates:
                 target_path = os.path.join(save_dir,
@@ -311,7 +314,8 @@ class DDPM(pl.LightningModule):
 
             for x, t in intermediates_true:
                 target_path = os.path.join(save_dir,
-                                           os.path.basename(path).replace(".osu", f"_t_step={t}.osu"))
+                                           os.path.basename(path).replace(".osu",
+                                                                          f"_t_step={t}.osu"))
                 convertor.save_osu_file(meta, x[i], target_path,
                                         {"Version": f"{meta.version}, true, step={t}"})
 
@@ -354,16 +358,24 @@ class DDPM(pl.LightningModule):
                                        w=self.model.wave_output(batch))
 
         loss_dict = {}
+        log_prefix = 'train' if self.training else 'val'
+
         if self.parameterization == "eps":
             target = noise
         elif self.parameterization == "x0":
             target = x_start
+        elif self.parameterization == "recon":
+            target = batch['note']
         else:
             raise NotImplementedError(f"Paramterization {self.parameterization} not yet supported")
 
-        loss = self.get_loss(model_out, target, mean=False).mean(dim=[1, 2])
-
-        log_prefix = 'train' if self.training else 'val'
+        if self.parameterization == "recon":
+            reconstructions = self.model.decode(model_out)
+            loss, loss_dict = self.model.first_stage_model.loss(target, reconstructions,
+                                                               torch.ones_like(batch['valid_flag']))
+            loss_dict = dict((f"{log_prefix}/{k}", v) for k, v in loss_dict.items())
+        else:
+            loss = self.get_loss(model_out, target, mean=False).mean(dim=[1, 2])
 
         loss_dict.update({f'{log_prefix}/loss_simple': loss.mean()})
         loss_simple = loss.mean() * self.l_simple_weight
@@ -381,10 +393,6 @@ class DDPM(pl.LightningModule):
         x = self.model.encode(batch)
         t = torch.randint(0, self.num_timesteps, (x.shape[0],), device=self.device).long()
         return self.p_losses(x, t, batch)
-
-    def shared_step(self, batch):
-        loss, loss_dict = self(batch)
-        return loss, loss_dict
 
     def training_step(self, batch, batch_idx):
         loss, loss_dict = self(batch)
@@ -408,7 +416,12 @@ class DDPM(pl.LightningModule):
 
     def configure_optimizers(self):
         lr = self.learning_rate
-        params = list(self.model.parameters())
+        params = []
+        for n, p in self.model.named_parameters():
+            if not p.requires_grad:
+                print(f"Freeze param: {n})")
+            else:
+                params.append(p)
         if self.learn_logvar:
             params = params + [self.logvar]
         opt = torch.optim.AdamW(params, lr=lr)
