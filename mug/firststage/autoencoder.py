@@ -85,7 +85,7 @@ class AutoencoderKL(pl.LightningModule):
         return loss
 
     def validation_step(self, batch, batch_idx):
-        loss, log_dict = self.step(batch, 'val', sample_posterior=False)
+        loss, log_dict = self.step(batch, 'val', sample_posterior=True)
         self.log("val/loss", loss)
         self.log_dict(log_dict)
         return self.log_dict
@@ -119,12 +119,13 @@ class AutoencoderKL(pl.LightningModule):
             _, meta = convertor.parse_osu_file(path, convertor_params)
 
             shutil.copyfile(path, os.path.join(save_dir, os.path.basename(path)))
-            try:
-                os.symlink(os.path.abspath(meta.audio),
-                           os.path.join(save_dir, os.path.basename(meta.audio)))
-            except:
-                shutil.copyfile(os.path.abspath(meta.audio),
-                                os.path.join(save_dir, os.path.basename(meta.audio)))
+            if not os.path.exists(os.path.join(save_dir, os.path.basename(meta.audio))):
+                try:
+                    os.symlink(os.path.abspath(meta.audio),
+                            os.path.join(save_dir, os.path.basename(meta.audio)))
+                except:
+                    shutil.copyfile(os.path.abspath(meta.audio),
+                                    os.path.join(save_dir, os.path.basename(meta.audio)))
 
             target_path = os.path.join(save_dir,
                                        os.path.basename(path).replace(".osu", f"_autoencoder.osu"))

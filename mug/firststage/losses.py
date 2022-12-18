@@ -60,6 +60,7 @@ class ManiaReconstructLoss(torch.nn.Module):
             [offset_end: 0-1]
             valid only if is_holding = 1 and latter.is_holding = 0
         """
+        valid_flag = torch.ones_like(valid_flag) # TODO
         key_count = inputs.shape[1] // 4
         valid_flag = torch.unsqueeze(valid_flag, dim=1)  # [B, 1, T]
         T = inputs.shape[0]

@@ -95,6 +95,7 @@ class DDPM(pl.LightningModule):
         self.z_channels = z_channels
         self.z_length = z_length
         self.log_index = log_index
+        self.has_logged_noise = False
         self.model = MugDiffusionWrapper(unet_config, first_stage_config, wave_stage_config,
                                          cond_stage_config)
 
@@ -151,7 +152,7 @@ class DDPM(pl.LightningModule):
         self.register_buffer('sqrt_alphas_cumprod', to_torch(np.sqrt(alphas_cumprod)))
         self.register_buffer('sqrt_one_minus_alphas_cumprod',
                              to_torch(np.sqrt(1. - alphas_cumprod)))
-        print("sqrt_one_minus_alphas_cumprod:", self.sqrt_one_minus_alphas_cumprod.tolist())
+        print("sqrt_alphas_cumprod:", self.sqrt_alphas_cumprod.tolist())
         self.register_buffer('log_one_minus_alphas_cumprod', to_torch(np.log(1. - alphas_cumprod)))
         self.register_buffer('sqrt_recip_alphas_cumprod', to_torch(np.sqrt(1. / alphas_cumprod)))
         self.register_buffer('sqrt_recipm1_alphas_cumprod',
@@ -222,7 +223,7 @@ class DDPM(pl.LightningModule):
     @torch.no_grad()
     def log_beatmap(self, batch, count, **kwargs):
         self.log_index += 1
-        if self.log_index % 50 != 1:
+        if self.log_index % 15 != 1:
             return
         device = self.betas.device
         batch_size = batch['note'].shape[0]
@@ -230,7 +231,7 @@ class DDPM(pl.LightningModule):
         w = self.model.wave_output(batch)
         c = self.model.cond_output(batch)
         intermediates = []
-        intermediates_true = []
+        # intermediates_true = []
         valid_flag = batch['valid_flag']
 
         debug_data = np.zeros((batch_size, 16 + 128, 16384))
@@ -251,16 +252,6 @@ class DDPM(pl.LightningModule):
                       total=self.num_timesteps):
             t = torch.full((batch_size,), i, device=device, dtype=torch.long)
 
-            x_true = self.model.encode(batch)
-            x_true_noise = torch.randn_like(x_true)
-            x_noisy = self.q_sample(x_start=x_true, t=t, noise=x_true_noise)
-            x_true_decode = self.model.decode(x_noisy)
-            x_true_decode = x_true_decode * valid_flag
-            if i % self.log_every_t == 0 or i == self.num_timesteps - 1:
-                intermediates_true.append((x_true_decode.cpu().numpy(), i))
-
-            intermediates_true.append((batch['note'].cpu().numpy(), -1))
-
             model_out = self.model.forward(x, t, c, w)
             if self.parameterization == "eps":
                 x_recon = self.predict_start_from_noise(x, t=t, noise=model_out)
@@ -280,9 +271,10 @@ class DDPM(pl.LightningModule):
             # no noise when t == 0
             nonzero_mask = (1 - (t == 0).float()).reshape(batch_size, *((1,) * (len(x.shape) - 1)))
             x = model_mean + nonzero_mask * (0.5 * model_log_variance).exp() * noise
-            x_decode = self.model.decode(x)
-            x_decode = x_decode * valid_flag
+
             if i % self.log_every_t == 0 or i == self.num_timesteps - 1:
+                x_decode = self.model.decode(x)
+                x_decode = x_decode * valid_flag
                 intermediates.append((x_decode.cpu().numpy(), i))
 
         for i in range(batch_size):
@@ -312,20 +304,21 @@ class DDPM(pl.LightningModule):
                 convertor.save_osu_file(meta, x[i], target_path,
                                         {"Version": f"{meta.version}, step={t}"})
 
-            for x, t in intermediates_true:
-                target_path = os.path.join(save_dir,
-                                           os.path.basename(path).replace(".osu",
-                                                                          f"_t_step={t}.osu"))
-                convertor.save_osu_file(meta, x[i], target_path,
-                                        {"Version": f"{meta.version}, true, step={t}"})
+            # for x, t in intermediates_true:
+            #     target_path = os.path.join(save_dir,
+            #                                os.path.basename(path).replace(".osu",
+            #                                                               f"_t_step={t}.osu"))
+            #     convertor.save_osu_file(meta, x[i], target_path,
+            #                             {"Version": f"{meta.version}, true, step={t}"})
 
     def summary(self):
-        print("Summary wave:")
-        self.model.wave_model.summary()
-        print("Summary cond:")
-        self.model.cond_stage_model.summary()
-        print("Summary unet:")
-        self.model.unet_model.summary()
+        pass
+        # print("Summary wave:")
+        # self.model.wave_model.summary()
+        # print("Summary cond:")
+        # self.model.cond_stage_model.summary()
+        # print("Summary unet:")
+        # self.model.unet_model.summary()
 
     def q_sample(self, x_start, t, noise=None):
         """
@@ -350,9 +343,12 @@ class DDPM(pl.LightningModule):
 
         return loss
 
-    def p_losses(self, x_start, t, batch, noise=None):
+    def p_losses(self, x_start, t, batch, noise=None, all_noise=False):
         noise = default(noise, lambda: torch.randn_like(x_start))
-        x_noisy = self.q_sample(x_start=x_start, t=t, noise=noise)
+        if all_noise:
+            x_noisy = noise
+        else:
+            x_noisy = self.q_sample(x_start=x_start, t=t, noise=noise)
         model_out = self.model.forward(x_noisy, t,
                                        c=self.model.cond_output(batch),
                                        w=self.model.wave_output(batch))
@@ -389,10 +385,12 @@ class DDPM(pl.LightningModule):
 
         return loss, loss_dict
 
-    def forward(self, batch):
+    def forward(self, batch, min_step=0, max_step=None, all_noise=False):
         x = self.model.encode(batch)
-        t = torch.randint(0, self.num_timesteps, (x.shape[0],), device=self.device).long()
-        return self.p_losses(x, t, batch)
+        if max_step is None:
+            max_step = self.num_timesteps
+        t = torch.randint(min_step, max_step, (x.shape[0],), device=self.device).long()
+        return self.p_losses(x, t, batch, all_noise)
 
     def training_step(self, batch, batch_idx):
         loss, loss_dict = self(batch)
@@ -413,6 +411,36 @@ class DDPM(pl.LightningModule):
     def validation_step(self, batch, batch_idx):
         _, loss_dict = self(batch)
         self.log_dict(loss_dict, prog_bar=False, logger=True, on_step=False, on_epoch=True)
+
+        level = batch_idx % 10
+        min_step = int(level / 10 * self.num_timesteps)
+        max_step = int((level + 1) / 10 * self.num_timesteps)
+
+        loss, loss_dict = self(batch, min_step, max_step)
+        self.log_dict(loss_dict, prog_bar=False, logger=True, on_step=False, on_epoch=True)
+        self.log(f"loss_level_{level}", loss)
+
+        loss, _ = self(batch, all_noise=True)
+        self.log(f"loss_level_all", loss)
+
+        # x_start = self.model.encode(batch)
+        # noise = torch.randn_like(x_start)
+        # t = torch.randint(min_step, max_step, (batch['note'].shape[0],), device=self.device).long()
+        # x_noisy = self.q_sample(x_start=x_start, t=t, noise=noise)
+        # noise_loss, _ = self.model.first_stage_model.loss(
+        #     batch['note'], 
+        #     self.model.decode(x_noisy),
+        #     torch.ones_like(batch['valid_flag'])
+        # )
+        # self.log(f"noise_level_{level}", noise_loss)
+
+        # all_noise_loss, _ = self.model.first_stage_model.loss(
+        #     batch['note'], 
+        #     self.model.decode(noise),
+        #     torch.ones_like(batch['valid_flag'])
+        # )
+        # self.log(f"noise_level_all", all_noise_loss)
+        # self.has_logged_noise = True
 
     def configure_optimizers(self):
         lr = self.learning_rate
