@@ -24,6 +24,7 @@ class OsuDataset(Dataset):
                  random_p=0,
                  shift_p=0,
                  feature_dropout_p=0,
+                 mirror_at_interval_p=0,
                  rate=None,
                  test_txt_file=None,
                  with_audio=False,
@@ -56,6 +57,7 @@ class OsuDataset(Dataset):
         self.mirror_p = mirror_p
         self.random_p = random_p
         self.shift_p = shift_p
+        self.mirror_at_interval_p = mirror_at_interval_p
         self.with_audio = with_audio
         self.rate = rate
         self.sr = sr
@@ -140,6 +142,7 @@ class OsuDataset(Dataset):
         convertor_params = self.convertor_params.copy()
         convertor_params["mirror"] = np.random.random() < self.mirror_p
         convertor_params["random"] = np.random.random() < self.random_p
+        convertor_params["mirror_at_interval_p"] = self.mirror_at_interval_p
         convertor_params["offset_ms"] = 0
         convertor_params["rate"] = 1.0
         if self.rate is not None:

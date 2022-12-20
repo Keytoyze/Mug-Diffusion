@@ -97,7 +97,7 @@ def save_osu_file(meta: BeatmapMeta, note_array: np.ndarray, path=None, override
 class BaseOsuConvertor(metaclass=ABCMeta):
 
     def __init__(self, frame_ms, max_frame, mirror=False, from_logits=False, offset_ms=0,
-                 random=False, rate=1.0):
+                 random=False, rate=1.0, mirror_at_interval_prob=0.0):
         self.frame_ms = frame_ms
         self.max_frame = max_frame
         self.mirror = mirror
@@ -105,6 +105,7 @@ class BaseOsuConvertor(metaclass=ABCMeta):
         self.offset_ms = offset_ms
         self.random = random
         self.rate = rate
+        self.mirror_at_interval_prob = mirror_at_interval_prob
 
 
     @abstractmethod
@@ -192,15 +193,20 @@ class OsuManiaConvertor(BaseOsuConvertor):
 
         for line in hit_objects:
             params = line.split(",")
-            column = int(int(float(params[0])) / column_width)
-            if column >= key_count or column < 0:
-                continue
-            column = column_map[column]
 
             start, start_index, start_offset = self.read_time(params[2])
             # is_start / offset_start
             if start_index >= len(array):
                 continue
+            if start_index - max_index >= 10 and self.mirror_at_interval_prob != 0:
+                if random.random() < self.mirror_at_interval_prob:
+                    column_map = [key_count - column_map[i] - 1 for i in range(key_count)]
+
+            column = int(int(float(params[0])) / column_width)
+            if column >= key_count or column < 0:
+                continue
+            column = column_map[column]
+
             array[start_index, column] = 1
             array[start_index, column + key_count] = start_offset
             max_index = max(start_index, max_index)
@@ -227,14 +233,16 @@ MOD_CONVERTOR = {
 }
 
 if __name__ == "__main__":
-    map_path = """E:\E\osu!\Songs\891164 Various Artists - 4K LN Dan Courses v2 - Extra Level -\Various Artists - 4K LN Dan Courses v2 - Extra Level - (_underjoy) [13th Dan - Yoru (Marathon)].osu"""
+    # map_path = """E:\E\osu!\Songs\891164 Various Artists - 4K LN Dan Courses v2 - Extra Level -\Various Artists - 4K LN Dan Courses v2 - Extra Level - (_underjoy) [13th Dan - Yoru (Marathon)].osu"""
+    map_path = r"""E:\E\osu!\Songs\1395676 goreshit - thinking of you\goreshit - thinking of you (hna) [obsession 1.1x (250bpm)].osu"""
     objs, beatmap_meta = parse_osu_file(map_path, convertor_params={"frame_ms": 2048 / 22050 / 2 * 1000,
                                                                     "max_frame": 8192,
                                                                     "mirror": False,
                                                                     "offset_ms": 0,
                                                                     "rate": 1.0,
-                                                                    "random": False})
+                                                                    "random": False,
+                                                                    "mirror_at_interval_prob": 1.0})
     save_osu_file(beatmap_meta,
                   beatmap_meta.convertor.objects_to_array(objs, beatmap_meta)[0],
                   map_path.replace(".osu", "_convert.osu"),
-                  {"Version": "13 dan - convert"})
+                  {"Version": "250bpm - convert"})
