@@ -91,7 +91,8 @@ class Downsample(nn.Module):
 
 class ResnetBlock(nn.Module):
     def __init__(self, *, in_channels, out_channels=None, conv_shortcut=False,
-                 dropout, temb_channels=512, dims=1, num_groups=32, use_checkpoint=False):
+                 dropout, temb_channels=512, dims=1, num_groups=32, use_checkpoint=False,
+                 dilations=(1, 1)):
         super().__init__()
         self.in_channels = in_channels
         out_channels = in_channels if out_channels is None else out_channels
@@ -104,7 +105,8 @@ class ResnetBlock(nn.Module):
                              out_channels,
                              kernel_size=3,
                              stride=1,
-                             padding=1)
+                             padding=dilations[0],
+                             dilation=dilations[0])
         if temb_channels > 0:
             self.temb_proj = torch.nn.Linear(temb_channels,
                                              out_channels)
@@ -114,7 +116,8 @@ class ResnetBlock(nn.Module):
                              out_channels,
                              kernel_size=3,
                              stride=1,
-                             padding=1)
+                             padding=dilations[1],
+                             dilation=dilations[1])
         if self.in_channels != self.out_channels:
             if self.use_conv_shortcut:
                 self.conv_shortcut = conv_nd(dims, in_channels,

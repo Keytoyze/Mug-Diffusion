@@ -262,7 +262,7 @@ class SetupCallback(Callback):
             ckpt_path = os.path.join(self.ckptdir, "last.ckpt")
             trainer.save_checkpoint(ckpt_path)
 
-    def on_pretrain_routine_start(self, trainer, pl_module):
+    def on_fit_start(self, trainer, pl_module):
         if trainer.global_rank == 0:
             # Create logdirs and save configs
             os.makedirs(self.logdir, exist_ok=True)

@@ -65,17 +65,21 @@ class FeedForward(nn.Module):
         return self.net(x)
 
 class CrossAttention(nn.Module):
-    def __init__(self, query_dim, context_dim=None, heads=8, dim_head=64, dropout=0.):
+    def __init__(self, query_dim, context_dim=None, heads=8, dim_head=64, dropout=0.,
+                 position_max_embedding=64):
         super().__init__()
         inner_dim = dim_head * heads
         context_dim = default(context_dim, query_dim)
 
         self.scale = dim_head ** -0.5
         self.heads = heads
+        self.position_max_embedding = position_max_embedding
 
         self.to_q = nn.Linear(query_dim, inner_dim, bias=False)
         self.to_k = nn.Linear(context_dim, inner_dim, bias=False)
         self.to_v = nn.Linear(context_dim, inner_dim, bias=False)
+        self.relative_position_embedding = nn.Parameter(torch.zeros(position_max_embedding * 2 + 1,
+                                                                    heads))
 
         self.to_out = nn.Sequential(
             nn.Linear(inner_dim, query_dim),
@@ -91,8 +95,15 @@ class CrossAttention(nn.Module):
         v = self.to_v(context)
 
         q, k, v = map(lambda t: rearrange(t, 'b n (h d) -> (b h) n d', h=h), (q, k, v))
+        n = q.shape[1]
+        position_matrix = torch.arange(n, device=x.device).reshape(1, -1)
+        position_matrix = torch.reshape(position_matrix, (-1, 1)) - position_matrix
+        position_matrix.clamp_(-self.position_max_embedding, self.position_max_embedding)
+        position_matrix += self.position_max_embedding
+        position_matrix = self.relative_position_embedding[position_matrix]
+        position_matrix = repeat(position_matrix, 'n1 n2 h -> (b h) n1 n2', b=x.shape[0])
 
-        sim = einsum('b i d, b j d -> b i j', q, k) * self.scale
+        sim = (einsum('b i d, b j d -> b i j', q, k) + position_matrix) * self.scale
 
         if exists(mask):
             mask = rearrange(mask, 'b ... -> b (...)')

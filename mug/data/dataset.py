@@ -1,15 +1,16 @@
-import numpy as np
 import torch
+import sqlite3
+
+import audioread.ffdec
 import librosa
 import soundfile
-import sqlite3
-import audioread.ffdec
+import torch
 import yaml
 from pytorch_lightning import Callback
 from torch.utils.data import Dataset
 
-from mug.data.convertor import *
 from mug import util
+from mug.data.convertor import *
 
 
 class OsuDataset(Dataset):
@@ -88,17 +89,20 @@ class OsuDataset(Dataset):
         except:
             return self.load_audio_wave(audio_path, fallback_load_method[1:])
 
-    def load_audio_without_cache(self, audio_path):
+    def load_audio_without_cache(self, audio_path, mel=False):
         y, sr = self.load_audio_wave(audio_path, [audioread.ffdec.FFmpegAudioFile,
                                                   lambda x: x,
                                                   soundfile.SoundFile
                                                   ])
-        y = librosa.feature.melspectrogram(y=y, sr=sr,
-                                           n_mels=self.n_mels,
-                                           hop_length=self.audio_hop_length,
-                                           n_fft=self.n_fft
-                                           )
-        y = np.log1p(y).astype(np.float16)
+        if mel:
+            y = librosa.feature.melspectrogram(y=y, sr=sr,
+                                               n_mels=self.n_mels,
+                                               hop_length=self.audio_hop_length,
+                                               n_fft=self.n_fft
+                                               )
+            y = np.log1p(y).astype(np.float16)
+        else:
+            y = librosa.stft(y=y, n_fft=self.n_fft, hop_length=self.audio_hop_length)
         return y
 
     def load_audio(self, audio_path):
@@ -110,9 +114,6 @@ class OsuDataset(Dataset):
         cache_path = os.path.join(self.cache_dir, cache_name)
         if os.path.isfile(cache_path):
             return np.load(cache_path)['y']
-
-        # if not os.path.isfile(audio_path):
-        #     raise ValueError("File not exist: " + audio_path)
         y = self.load_audio_without_cache(audio_path)
         np.savez_compressed(cache_path, y=y)
         return y
@@ -142,11 +143,11 @@ class OsuDataset(Dataset):
         convertor_params = self.convertor_params.copy()
         convertor_params["mirror"] = np.random.random() < self.mirror_p
         convertor_params["random"] = np.random.random() < self.random_p
-        convertor_params["mirror_at_interval_p"] = self.mirror_at_interval_p
+        convertor_params["mirror_at_interval_prob"] = self.mirror_at_interval_p
         convertor_params["offset_ms"] = 0
         convertor_params["rate"] = 1.0
         if self.rate is not None:
-            assert not self.with_audio, "Cannot change audio rate currently!"
+            # assert not self.with_audio, "Cannot change audio rate currently!"
             convertor_params["rate"] = np.random.random() * (self.rate[1] - self.rate[0]) + \
                                        self.rate[0]
         if np.random.random() < self.shift_p:
@@ -163,16 +164,42 @@ class OsuDataset(Dataset):
                 "valid_flag": valid_flag
             }
             if self.with_audio:
-                audio = self.load_audio(beatmap_meta.audio).astype(np.float32)
+
+                # audio = self.load_audio(beatmap_meta.audio).astype(np.float32)
+                #
+                # t = audio.shape[1]
+                # if t < self.max_audio_frame:
+                #     audio = np.concatenate([
+                #         audio,
+                #         np.zeros((self.n_mels, self.max_audio_frame - t), dtype=np.float32)
+                #     ], axis=1)
+                # elif t > self.max_audio_frame:
+                #     audio = audio[:, :self.max_audio_frame]
+
+                audio = self.load_audio(beatmap_meta.audio)
+                if convertor_params["rate"] != 1.0:
+                    audio = librosa.phase_vocoder(audio, rate=convertor_params["rate"],
+                                                  hop_length=self.audio_hop_length)
                 t = audio.shape[1]
+                audio = np.concatenate([
+                    np.log1p(np.abs(audio)).reshape((1, -1, t)),
+                    np.angle(audio).reshape((1, -1, t))
+                ], axis=0)
                 if t < self.max_audio_frame:
                     audio = np.concatenate([
                         audio,
-                        np.zeros((self.n_mels, self.max_audio_frame - t), dtype=np.float32)
-                    ], axis=1)
+                        np.zeros((2, self.n_fft // 2 + 1, self.max_audio_frame - t))
+                    ], axis=2)
                 elif t > self.max_audio_frame:
                     audio = audio[:, :self.max_audio_frame]
+
+
                 example["audio"] = audio
+                # debug_data = np.zeros((16 + 2050, 16384))
+                # debug_data[:16, np.arange(0, 16384, 2)] = obj_array * 5
+                # debug_data[:16, np.arange(1, 16385, 2)] = obj_array * 5
+                # debug_data[16:, :] = audio
+
             if self.with_feature:
                 example["feature"] = np.asarray(
                     self.load_feature(beatmap_meta.path, self.feature_dropout_p)
@@ -183,7 +210,7 @@ class OsuDataset(Dataset):
                 with open(os.path.join(self.cache_dir, "error.txt"), "a+") as f:
                     f.write(f"{path}: {e}\n")
                 self.error_files.append(path)
-            # raise
+            raise
             return self.__getitem__(random.randint(0, len(self.beatmap_paths) - 1))
 
     def filter_beatmap_paths(self, beatmap_paths):
@@ -248,7 +275,7 @@ class BeatmapLogger(Callback):
 if __name__ == '__main__':
     from tqdm import tqdm
 
-    os.makedirs(os.path.join("data", "audio_cache_log_16"), exist_ok=True)
+    os.makedirs(os.path.join("data", "audio_cache"), exist_ok=True)
     base = (os.path.join("data", "audio_cache"))
     for name in tqdm(os.listdir(base)):
         if name.endswith("npz"):
