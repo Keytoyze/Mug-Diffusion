@@ -471,6 +471,7 @@ if __name__ == "__main__":
     # running as `python main.py`
     # (in particular `main.DataModuleFromConfig`)
     sys.path.append(os.getcwd())
+    # torch.multiprocessing.set_start_method('spawn')
 
     parser = get_parser()
     parser = Trainer.add_argparse_args(parser)

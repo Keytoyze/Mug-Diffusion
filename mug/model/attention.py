@@ -95,14 +95,14 @@ class CrossAttention(nn.Module):
         v = self.to_v(context)
 
         q, k, v = map(lambda t: rearrange(t, 'b n (h d) -> (b h) n d', h=h), (q, k, v))
-        n = q.shape[1]
-        position_matrix = torch.arange(n, device=x.device).reshape(1, -1)
-        position_matrix = torch.reshape(position_matrix, (-1, 1)) - position_matrix
+        position_matrix = (
+            torch.arange(k.shape[1], device=x.device).reshape(1, -1) - 
+            torch.arange(q.shape[1], device=x.device).reshape(-1, 1)
+        )
         position_matrix.clamp_(-self.position_max_embedding, self.position_max_embedding)
         position_matrix += self.position_max_embedding
         position_matrix = self.relative_position_embedding[position_matrix]
         position_matrix = repeat(position_matrix, 'n1 n2 h -> (b h) n1 n2', b=x.shape[0])
-
         sim = (einsum('b i d, b j d -> b i j', q, k) + position_matrix) * self.scale
 
         if exists(mask):
@@ -132,7 +132,10 @@ class BasicTransformerBlock(nn.Module):
         self.checkpoint = checkpoint
 
     def forward(self, x, context=None):
-        return checkpoint(self._forward, (x, context), self.parameters(), self.checkpoint)
+        if context is not None:
+            return checkpoint(self._forward, (x, context), self.parameters(), self.checkpoint)
+        else:
+            return checkpoint(self._forward, (x, ), self.parameters(), self.checkpoint)
 
     def _forward(self, x, context=None):
         x = self.attn1(self.norm1(x)) + x

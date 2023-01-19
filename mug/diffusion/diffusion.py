@@ -6,6 +6,7 @@ import numpy as np
 import pytorch_lightning as pl
 import torch
 import torch.nn as nn
+from torch.optim.lr_scheduler import LambdaLR
 from tqdm import tqdm
 
 from mug.util import exists, default, instantiate_from_config, load_dict_from_batch
@@ -42,14 +43,14 @@ class MugDiffusionWrapper(nn.Module):
         return self.cond_stage_model(batch['feature'])
 
     def encode(self, batch):
-        return self.first_stage_model.encode(batch['note']).mode()
+        return self.first_stage_model.encode(batch['note'])
 
     def decode(self, x):
         return self.first_stage_model.decode(x)
 
     def forward(self, x, t, c, w):
-        x_input = torch.cat([x, w], dim=1)
-        return self.unet_model(x_input, t, c)
+        # x_input = torch.cat([x, w], dim=1)
+        return self.unet_model(x, t, c, *w)
 
 
 class DDPM(pl.LightningModule):
@@ -98,6 +99,7 @@ class DDPM(pl.LightningModule):
         self.has_logged_noise = False
         self.model = MugDiffusionWrapper(unet_config, first_stage_config, wave_stage_config,
                                          cond_stage_config)
+        self.noise_losses = {}
 
         self.use_scheduler = scheduler_config is not None
         if self.use_scheduler:
@@ -117,6 +119,7 @@ class DDPM(pl.LightningModule):
                                linear_start=linear_start, linear_end=linear_end, cosine_s=cosine_s)
 
         self.loss_type = loss_type
+        self.generator = None
 
         self.learn_logvar = learn_logvar
         self.logvar = torch.full(fill_value=logvar_init, size=(self.num_timesteps,))
@@ -223,7 +226,7 @@ class DDPM(pl.LightningModule):
     @torch.no_grad()
     def log_beatmap(self, batch, count, **kwargs):
         self.log_index += 1
-        if self.log_index % 15 != 1:
+        if self.log_index % 15 != 2:
             return
         device = self.betas.device
         batch_size = batch['note'].shape[0]
@@ -234,18 +237,18 @@ class DDPM(pl.LightningModule):
         # intermediates_true = []
         valid_flag = batch['valid_flag']
 
-        debug_data = np.zeros((batch_size, 16 + 128, 16384))
-        debug_data[:, :16, np.arange(0, 16384, 2)] = batch['note'].cpu()
-        debug_data[:, 16:, :] = batch['audio'].cpu()
-        save_dir = os.path.join(self.logger.save_dir, "numpy")
-        os.makedirs(save_dir, exist_ok=True)
+        # debug_data = np.zeros((batch_size, 16 + 128, 16384))
+        # debug_data[:, :16, np.arange(0, 16384, 2)] = batch['note'].cpu()
+        # debug_data[:, 16:, :] = batch['audio'].cpu()
+        # save_dir = os.path.join(self.logger.save_dir, "numpy")
+        # os.makedirs(save_dir, exist_ok=True)
 
-        for i in range(batch_size):
-            if i >= count:
-                break
-            path = batch['meta']['path'][i]
-            np.save(os.path.join(save_dir, os.path.basename(path).replace("osu", "npy")),
-                    debug_data[i])
+        # for i in range(batch_size):
+        #     if i >= count:
+        #         break
+        #     path = batch['meta']['path'][i]
+        #     np.save(os.path.join(save_dir, os.path.basename(path).replace("osu", "npy")),
+        #             debug_data[i])
 
         valid_flag = torch.unsqueeze(valid_flag, dim=1)  # [B, 1, T]
         for i in tqdm(reversed(range(0, self.num_timesteps)), desc='Sampling t',
@@ -313,12 +316,12 @@ class DDPM(pl.LightningModule):
 
     def summary(self):
         pass
-        # print("Summary wave:")
-        # self.model.wave_model.summary()
-        # print("Summary cond:")
-        # self.model.cond_stage_model.summary()
-        # print("Summary unet:")
-        # self.model.unet_model.summary()
+        print("Summary wave:")
+        self.model.wave_model.summary()
+        print("Summary cond:")
+        self.model.cond_stage_model.summary()
+        print("Summary unet:")
+        self.model.unet_model.summary()
 
     def q_sample(self, x_start, t, noise=None):
         """
@@ -343,8 +346,9 @@ class DDPM(pl.LightningModule):
 
         return loss
 
-    def p_losses(self, x_start, t, batch, noise=None, all_noise=False):
-        noise = default(noise, lambda: torch.randn_like(x_start))
+    def p_losses(self, x_start_distribution, t, batch, noise=None, all_noise=False, generator=None):
+        x_start = x_start_distribution.mode()
+        noise = default(noise, lambda: torch.randn(x_start.size(), generator=generator, device=x_start.device))
         if all_noise:
             x_noisy = noise
         else:
@@ -371,9 +375,14 @@ class DDPM(pl.LightningModule):
                                                                torch.ones_like(batch['valid_flag']))
             loss_dict = dict((f"{log_prefix}/{k}", v) for k, v in loss_dict.items())
         else:
+            # loss = (self.get_loss(model_out, target, mean=False) / (x_start_distribution.var + 0.1)).mean(dim=[1, 2])
             loss = self.get_loss(model_out, target, mean=False).mean(dim=[1, 2])
 
         loss_dict.update({f'{log_prefix}/loss_simple': loss.mean()})
+        loss_dict.update({f'{log_prefix}/loss_mae': torch.abs(model_out - target).mean()})
+        loss_dict.update({f'{log_prefix}/loss_mse': torch.nn.functional.mse_loss(target, model_out).mean()})
+        loss_dict.update({f'{log_prefix}/loss_ratio': (torch.abs(model_out - target) / (x_start_distribution.std)).mean()})
+
         loss_simple = loss.mean() * self.l_simple_weight
 
         loss_vlb = (self.lvlb_weights[t] * loss).mean()
@@ -385,74 +394,90 @@ class DDPM(pl.LightningModule):
 
         return loss, loss_dict
 
-    def forward(self, batch, min_step=0, max_step=None, all_noise=False):
+    def forward(self, batch, min_step=0, max_step=None, all_noise=False, generator=None):
         x = self.model.encode(batch)
         if max_step is None:
             max_step = self.num_timesteps
-        t = torch.randint(min_step, max_step, (x.shape[0],), device=self.device).long()
-        return self.p_losses(x, t, batch, all_noise)
+        t = torch.randint(min_step, max_step, (x.mode().shape[0],), device=self.device, generator=generator).long()
+        return self.p_losses(x, t, batch, all_noise=all_noise, generator=generator)
 
     def training_step(self, batch, batch_idx):
         loss, loss_dict = self(batch)
 
         self.log_dict(loss_dict, prog_bar=True,
-                      logger=True, on_step=True, on_epoch=True)
+                      logger=True, on_step=True, on_epoch=True, sync_dist=True)
 
         self.log("global_step", self.global_step,
-                 prog_bar=True, logger=True, on_step=True, on_epoch=False)
+                 prog_bar=True, logger=True, on_step=True, on_epoch=False, sync_dist=True)
 
         if self.use_scheduler:
             lr = self.optimizers().param_groups[0]['lr']
-            self.log('lr_abs', lr, prog_bar=True, logger=True, on_step=True, on_epoch=False)
+            self.log('lr_abs', lr, prog_bar=True, logger=True, on_step=True, on_epoch=False, sync_dist=True)
 
         return loss
 
     @torch.no_grad()
     def validation_step(self, batch, batch_idx):
-        _, loss_dict = self(batch)
-        self.log_dict(loss_dict, prog_bar=False, logger=True, on_step=False, on_epoch=True)
+        if self.generator is None:
+            self.generator = torch.Generator(batch['note'].device)
+        generator = self.generator.manual_seed(hash(str(batch_idx))) 
+        _, loss_dict = self(batch, generator=generator)
+        self.log_dict(loss_dict, prog_bar=False, logger=True, on_step=False, on_epoch=True, sync_dist=True)
 
         level = batch_idx % 10
         min_step = int(level / 10 * self.num_timesteps)
         max_step = int((level + 1) / 10 * self.num_timesteps)
 
-        loss, loss_dict = self(batch, min_step, max_step)
-        self.log_dict(loss_dict, prog_bar=False, logger=True, on_step=False, on_epoch=True)
-        self.log(f"loss_level_{level}", loss)
+        loss, _ = self(batch, all_noise=True, generator=generator)
+        self.log(f"loss_level_all", loss, sync_dist=True)
 
-        loss, _ = self(batch, all_noise=True)
-        self.log(f"loss_level_all", loss)
+        # if "noise_level_all" not in self.noise_losses:
+        #     x_start_distribution = self.model.encode(batch)
+        #     x_start = x_start_distribution.mode()
+        #     noise = torch.randn_like(x_start)
 
-        # x_start = self.model.encode(batch)
-        # noise = torch.randn_like(x_start)
-        # t = torch.randint(min_step, max_step, (batch['note'].shape[0],), device=self.device).long()
-        # x_noisy = self.q_sample(x_start=x_start, t=t, noise=noise)
-        # noise_loss, _ = self.model.first_stage_model.loss(
-        #     batch['note'], 
-        #     self.model.decode(x_noisy),
-        #     torch.ones_like(batch['valid_flag'])
-        # )
-        # self.log(f"noise_level_{level}", noise_loss)
+        #     all_noise_loss = (self.get_loss(noise, x_start, mean=False)).mean()
+        #     self.noise_losses['noise_level_all'] = all_noise_loss
+        # self.log(f"noise_level_all", self.noise_losses['noise_level_all'])
 
-        # all_noise_loss, _ = self.model.first_stage_model.loss(
-        #     batch['note'], 
-        #     self.model.decode(noise),
-        #     torch.ones_like(batch['valid_flag'])
-        # )
-        # self.log(f"noise_level_all", all_noise_loss)
-        # self.has_logged_noise = True
+        loss, loss_dict = self(batch, min_step, max_step, generator=generator)
+        self.log(f"loss_level_{level}", loss, sync_dist=True)
+
+        # if f"noise_level_{level}" not in self.noise_losses:
+        #     x_start_distribution = self.model.encode(batch)
+        #     x_start = x_start_distribution.mode()
+        #     noise = torch.randn_like(x_start)
+        #     t = torch.randint(min_step, max_step, (batch['note'].shape[0],), device=self.device).long()
+        #     x_noisy = self.q_sample(x_start=x_start, t=t, noise=noise)
+        #     noise_loss = (self.get_loss(x_noisy, x_start, mean=False)).mean()
+        #     self.noise_losses[f"noise_level_{level}"] = noise_loss.item()
+        # self.log(f"noise_level_{level}", self.noise_losses[f"noise_level_{level}"])
 
     def configure_optimizers(self):
         lr = self.learning_rate
         params = []
         for n, p in self.model.named_parameters():
             if not p.requires_grad:
-                print(f"Freeze param: {n})")
+                pass
+                # print(f"Freeze param: {n})")
             else:
                 params.append(p)
         if self.learn_logvar:
             params = params + [self.logvar]
         opt = torch.optim.AdamW(params, lr=lr)
+
+        if self.use_scheduler:
+            assert 'target' in self.scheduler_config
+            scheduler = instantiate_from_config(self.scheduler_config)
+
+            print("Setting up LambdaLR scheduler...")
+            scheduler = [
+                {
+                    'scheduler': LambdaLR(opt, lr_lambda=scheduler.schedule),
+                    'interval': 'step',
+                    'frequency': 1
+                }]
+            return [opt], scheduler
         return opt
 
 

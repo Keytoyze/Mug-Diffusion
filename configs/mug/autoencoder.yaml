@@ -1,9 +1,12 @@
 model:
-  base_learning_rate: 4.5e-6
+  base_learning_rate: 5e-7
   target: mug.firststage.autoencoder.AutoencoderKL
   params:
     monitor: "val/loss"
-    kl_weight: 0.000001
+    ckpt_path: /var/chenmouxiang/mug-diffusion/logs/2022-12-30T01-07-57_autoencoder/checkpoints/epoch=000359.ckpt
+    # ignore_keys: [ 'encoder.conv_out', 'decoder.conv_in' ]
+    # training_keys: [ 'encoder.conv_out', 'decoder.conv_in' ]
+    kl_weight: 0.001
     lossconfig:
       target: mug.firststage.losses.ManiaReconstructLoss
       params:
@@ -15,32 +18,44 @@ model:
     ddconfig:
       x_channels: 16 # key_count * 4
       middle_channels: 64
-      z_channels: 32
-      channel_mult: [ 1,1,2,2,4,4 ]  # num_down = len(ch_mult)-1
+      z_channels: 16
+      num_groups: 8
+      channel_mult: [ 1,2,4,4 ]  # num_down = len(ch_mult)-1
+      # Time
+      # 0.04643990 4096
+      # 0.0928798 2048
+      # 0.1857596 1024
+      # 0.3715192 512 
+      # ======================
+      # 0.7430384 256
+      # 1.4860768 128
+      # 2.9721536 64
+      # 5.9443072 32
       num_res_blocks: 1
 
 
 data:
   target: main.DataModuleFromConfig
   params:
-    batch_size: 16
+    batch_size: 128
     wrap: False
-    num_workers: 4
+    num_workers: 6
     common_params:
       txt_file: "data/beatmap_4k/beatmap.txt"
       sr: 22050
       n_fft: 2048
-      max_audio_frame: 16384
+      max_audio_frame: 8192
       n_mels: 128
       cache_dir: "data/audio_cache/"
       # audio_window_frame = n_fft / sr / 4 = 0.02321995 s
       # note_window_frame = 2 * audio_window_frame = 0.04643990 s
       # max_duration = audio_window_frame * max_audio_frame = 380.4357 s = 6 min 20 s
-      # max_note_frame = max_audio_frame / 2 = 8192
+      # max_note_frame = max_audio_frame / 2 = 4096
     train:
       target: mug.data.dataset.OsuTrainDataset
       params:
         mirror_p: 0.3
+        mirror_at_interval_p: 0.2
         random_p: 0.1
         shift_p: 0.1
         rate: [ 0.8,1.2 ]
@@ -63,4 +78,5 @@ lightning:
   trainer:
     benchmark: True
     accelerator: dp
-    accumulate_grad_batches: 2
+    accumulate_grad_batches: 1
+    precision: 16

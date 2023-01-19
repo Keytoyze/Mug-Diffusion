@@ -124,6 +124,8 @@ class CheckpointFunction(torch.autograd.Function):
     def forward(ctx, run_function, length, *args):
         ctx.run_function = run_function
         ctx.input_tensors = list(args[:length])
+        for x in ctx.input_tensors:
+            assert x is not None
         ctx.input_params = list(args[length:])
 
         with torch.no_grad():

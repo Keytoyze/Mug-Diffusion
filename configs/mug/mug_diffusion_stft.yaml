@@ -1,5 +1,5 @@
 model:
-  base_learning_rate: 1e-07
+  base_learning_rate: 5e-05
   target: mug.diffusion.diffusion.DDPM
   params:
     linear_start: 0.0001
@@ -9,17 +9,19 @@ model:
     z_channels: 32
     z_length: 256
     parameterization: x0
+    loss_type: l1
+    ignore_keys: [ 'model.first_stage_model' ]
     monitor: val/loss_simple
 
     unet_config:
       target: mug.diffusion.unet.UNetModel
       params:
-        in_channels: 64
-        model_channels: 64
+        in_channels: 544 # 512 + 32
+        model_channels: 128
         out_channels: 32
         attention_resolutions: [ 8,4,2 ]
-        num_res_blocks: 1
-        channel_mult: [ 1,2,3,4 ]
+        num_res_blocks: 2
+        channel_mult: [ 1,2,4,4 ]
         num_heads: 8
         context_dim: 128
         use_checkpoint: true
@@ -28,7 +30,7 @@ model:
       target: mug.firststage.autoencoder.AutoencoderKL
       params:
         monitor: "val/loss"
-#        ckpt_path: "/var/chenmouxiang/mug-diffusion/logs/autoencoder_kl_large/checkpoints/epoch=000999.ckpt"
+        ckpt_path: "/var/chenmouxiang/mug-diffusion/logs/autoencoder_kl_large/checkpoints/epoch=000999.ckpt"
         kl_weight: 0.000001
         scale: 2.0
         ddconfig:
@@ -53,23 +55,22 @@ model:
         embed_dim: 128
 
     wave_stage_config:
-#      target: mug.cond.wave.MelspectrogramEncoder
-      target: mug.cond.wave.STFTEncoder1D
+      target: mug.cond.wave.STFTEncoder
       params:
-        features: 2050 # = n_fft + 2
-        middle_channels: 96
-        out_channels: 32
+        n_fft: 2048
+        middle_channels: 128
+        out_channels: 512
         num_res_blocks: 2
         use_checkpoint: true
-        channel_mult: [ 1,1,2,2,2,4,4 ]
+        channel_mult: [ 1,2,2,2,4,4,4 ]
 
 
 data:
   target: main.DataModuleFromConfig
   params:
-    batch_size: 1
+    batch_size: 16
     wrap: False
-    num_workers: 6
+    num_workers: 10
     common_params:
       txt_file: "data/beatmap_4k/beatmap.txt"
       sr: 22050
@@ -110,3 +111,4 @@ lightning:
     benchmark: True
     accelerator: cuda
     accumulate_grad_batches: 2
+    # precision: 16

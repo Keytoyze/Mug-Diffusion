@@ -1,11 +1,13 @@
 import os.path
 
 import pytorch_lightning as pl
+from torch.optim.lr_scheduler import ReduceLROnPlateau
 
 from mug.data import convertor
 from mug.model.models import *
 from mug.util import instantiate_from_config, load_dict_from_batch
 import shutil
+import numpy as np
 
 
 class AutoencoderKL(pl.LightningModule):
@@ -14,9 +16,11 @@ class AutoencoderKL(pl.LightningModule):
                  lossconfig,
                  ckpt_path=None,
                  ignore_keys=None,
+                 training_keys=None,
                  monitor=None,
                  kl_weight=0.0,
-                 scale=1.0
+                 scale=1.0,
+                 constant_var=None
                  ):
         super().__init__()
         if ignore_keys is None:
@@ -25,12 +29,16 @@ class AutoencoderKL(pl.LightningModule):
         self.decoder = Decoder(**ddconfig)
         self.loss = instantiate_from_config(lossconfig)
         self.scale = scale
-
         self.kl_weight = kl_weight
+        self.log_var = torch.nn.Parameter(torch.FloatTensor(
+            [np.log(constant_var) * 2]
+        )) if constant_var is not None else None
+
         if monitor is not None:
             self.monitor = monitor
         if ckpt_path is not None:
             self.init_from_ckpt(ckpt_path, ignore_keys=ignore_keys)
+        self.training_keys = training_keys
 
     def init_from_ckpt(self, path, ignore_keys=None):
         if ignore_keys is None:
@@ -47,7 +55,10 @@ class AutoencoderKL(pl.LightningModule):
 
     def encode(self, x):
         h = self.encoder(x)
-        posterior = DiagonalGaussianDistribution(h, scale=self.scale)
+        if self.log_var is None:
+            posterior = DiagonalGaussianDistribution(h, scale=self.scale)
+        else:
+            posterior = DiagonalGaussianDistribution(h, scale=self.scale, logvar=self.log_var)
         return posterior
 
     def decode(self, z):
@@ -85,19 +96,42 @@ class AutoencoderKL(pl.LightningModule):
         return loss
 
     def validation_step(self, batch, batch_idx):
-        loss, log_dict = self.step(batch, 'val', sample_posterior=True)
+        loss, log_dict = self.step(batch, 'val', sample_posterior=False)
         self.log("val/loss", loss)
         self.log_dict(log_dict)
         return self.log_dict
 
     def configure_optimizers(self):
         lr = self.learning_rate
-        opt = torch.optim.Adam(list(self.encoder.parameters()) +
-                               list(self.decoder.parameters()),
+        parameters = []
+        parameters = list(self.encoder.parameters()) + list(self.decoder.parameters())
+        
+        for n, p in self.encoder.named_parameters():
+            if self.training_keys is not None:
+                p.requires_grad = False
+                for k in self.training_keys:
+                    if f"encoder.{n}".startswith(k):
+                        p.requires_grad = True
+            if p.requires_grad:
+                parameters.append(p)
+                print(f"Training key: encoder.{n}")
+        for n, p in self.decoder.named_parameters():
+            if self.training_keys is not None:
+                p.requires_grad = False
+                for k in self.training_keys:
+                    if f"decoder.{n}".startswith(k):
+                        p.requires_grad = True
+            if p.requires_grad:
+                parameters.append(p)
+                print(f"Training key: decoder.{n}")
+    
+        if self.log_var is not None:
+            parameters += [self.log_var]
+        opt = torch.optim.Adam(parameters,
                                # list(self.quant_conv.parameters()) +
                                # list(self.post_quant_conv.parameters()),
                                lr=lr)
-        return opt
+        return [opt], {"scheduler": ReduceLROnPlateau(opt, 'min', verbose=True), "monitor": "val/loss"}
 
     @torch.no_grad()
     def log_beatmap(self, batch, count, **kwargs):
@@ -134,19 +168,18 @@ class AutoencoderKL(pl.LightningModule):
 
     def summary(self):
         import torchsummary
-        torchsummary.summary(self, (16, 8192), depth=10)
+        torchsummary.summary(self, (16, 4096), depth=10)
 
 class Encoder(nn.Module):
     def __init__(self, *, x_channels, middle_channels, z_channels,
-                 channel_mult, num_res_blocks,
+                 channel_mult, num_res_blocks, num_groups=32,
                  **ignore_kwargs):
         super().__init__()
         self.num_resolutions = len(channel_mult)
         self.num_res_blocks = num_res_blocks
-        self.position_embedding = FixedPositionalEmbedding(middle_channels)
 
         # downsampling
-        self.conv_in = torch.nn.Conv1d((x_channels + middle_channels),
+        self.conv_in = torch.nn.Conv1d(x_channels,
                                        middle_channels,
                                        kernel_size=3,
                                        stride=1,
@@ -163,7 +196,8 @@ class Encoder(nn.Module):
                 block.append(ResnetBlock(in_channels=block_in,
                                          out_channels=block_out,
                                          temb_channels=0,
-                                         dropout=0))
+                                         dropout=0,
+                                         num_groups=num_groups))
                 block_in = block_out
             down = nn.Module()
             down.block = block
@@ -178,15 +212,17 @@ class Encoder(nn.Module):
         self.mid.block_1 = ResnetBlock(in_channels=block_in,
                                        out_channels=block_in,
                                        temb_channels=0,
-                                       dropout=0)
+                                       dropout=0,
+                                       num_groups=num_groups)
         # self.mid.attn_1 = AttnBlock(block_in)
         self.mid.block_2 = ResnetBlock(in_channels=block_in,
                                        out_channels=block_in,
                                        temb_channels=0,
-                                       dropout=0)
+                                       dropout=0,
+                                       num_groups=num_groups)
 
         # end
-        self.norm_out = Normalize(block_in)
+        self.norm_out = Normalize(block_in, num_groups=num_groups)
         self.conv_out = torch.nn.Conv1d(block_in,
                                         z_channels * 2, # for sampling Gaussian
                                         kernel_size=3,
@@ -194,11 +230,9 @@ class Encoder(nn.Module):
                                         padding=1)
 
     def forward(self, x):
-        # position embedding
-        h = self.position_embedding(x)
 
         # downsampling
-        h = self.conv_in(h)
+        h = self.conv_in(x)
         for i_level in range(self.num_resolutions):
             for i_block in range(self.num_res_blocks):
                 h = self.down[i_level].block[i_block](h)
@@ -221,7 +255,7 @@ class Encoder(nn.Module):
 
 class Decoder(nn.Module):
     def __init__(self, *, x_channels, middle_channels, z_channels,
-                 channel_mult, num_res_blocks,
+                 channel_mult, num_res_blocks, num_groups=32,
                  **ignore_kwargs):
         super().__init__()
         self.num_resolutions = len(channel_mult)
@@ -242,12 +276,14 @@ class Decoder(nn.Module):
         self.mid.block_1 = ResnetBlock(in_channels=block_in,
                                        out_channels=block_in,
                                        temb_channels=0,
-                                       dropout=0)
+                                       dropout=0,
+                                       num_groups=num_groups)
         # self.mid.attn_1 = AttnBlock(block_in)
         self.mid.block_2 = ResnetBlock(in_channels=block_in,
                                        out_channels=block_in,
                                        temb_channels=0,
-                                       dropout=0)
+                                       dropout=0,
+                                       num_groups=num_groups)
 
         # upsampling
         self.up = nn.ModuleList()
@@ -259,7 +295,8 @@ class Decoder(nn.Module):
                 block.append(ResnetBlock(in_channels=block_in,
                                          out_channels=block_out,
                                          temb_channels=0,
-                                         dropout=0))
+                                         dropout=0,
+                                         num_groups=num_groups))
                 block_in = block_out
             up = nn.Module()
             up.block = block
@@ -270,7 +307,7 @@ class Decoder(nn.Module):
             self.up.insert(0, up)  # prepend to get consistent order
 
         # end
-        self.norm_out = Normalize(block_in)
+        self.norm_out = Normalize(block_in, num_groups=num_groups)
         self.conv_out = torch.nn.Conv1d(block_in,
                                         x_channels,
                                         kernel_size=3,
@@ -305,10 +342,12 @@ class Decoder(nn.Module):
         return h
 
 class DiagonalGaussianDistribution(object):
-    def __init__(self, parameters, deterministic=False, scale=1.0):
+    def __init__(self, parameters, deterministic=False, scale=1.0, logvar=None):
         self.parameters = parameters
         self.mean, self.logvar = torch.chunk(parameters, 2, dim=1)
-        self.logvar = torch.clamp(self.logvar, -30.0, 20.0)
+        if logvar is not None:
+            self.logvar = logvar * torch.ones_like(self.mean)
+        self.logvar = torch.clamp(self.logvar, -10.0, 20.0)
         self.deterministic = deterministic
         self.std = torch.exp(0.5 * self.logvar)
         self.var = torch.exp(self.logvar)

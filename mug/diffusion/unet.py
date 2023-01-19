@@ -59,6 +59,13 @@ class TimestepEmbedSequential(nn.Sequential, TimestepBlock):
         return x
 
 
+class AudioConcatBlock(nn.Module):
+
+    def forward(self, input, audio):
+        # print(f"AudioConcatBlock: {input.shape}, {audio.shape}")
+        return th.cat([input, audio], dim=1)
+
+
 class TimestepResBlock(TimestepBlock):
     """
     A residual block that can optionally change the number of channels.
@@ -163,6 +170,8 @@ class TimestepResBlock(TimestepBlock):
             x = self.x_upd(x)
             h = in_conv(h)
         else:
+            # print(x.shape, " xshape")
+            # print(self.channels, " channels")
             h = self.in_layers(x)
         emb_out = self.emb_layers(emb).type(h.dtype)
         while len(emb_out.shape) < len(h.shape):
@@ -228,6 +237,7 @@ class UNetModel(nn.Module):
             out_channels,
             num_res_blocks,
             attention_resolutions,
+            audio_channels,
             dropout=0,
             channel_mult=(1, 2, 4, 8),
             conv_resample=True,
@@ -237,7 +247,6 @@ class UNetModel(nn.Module):
             num_heads=-1,
             num_head_channels=-1,
             use_scale_shift_norm=False,
-            use_position_embedding=True,
             transformer_depth=1,  # custom transformer support
             context_dim=None,  # custom transformer support
     ):
@@ -266,10 +275,6 @@ class UNetModel(nn.Module):
         self.dtype = th.float16 if use_fp16 else th.float32
         self.num_heads = num_heads
         self.num_head_channels = num_head_channels
-        self.use_position_embedding = use_position_embedding
-        if self.use_position_embedding:
-            self.position_embedding = FixedPositionalEmbedding(model_channels)
-            self.in_channels += model_channels
 
         time_embed_dim = model_channels * 4
         self.time_embed = nn.Sequential(
@@ -290,6 +295,8 @@ class UNetModel(nn.Module):
         ch = model_channels
         ds = 1
         for level, mult in enumerate(channel_mult):
+            self.input_blocks.append(AudioConcatBlock())
+            ch += audio_channels[level]
             for _ in range(num_res_blocks):
                 layers = [
                     TimestepResBlock(
@@ -360,6 +367,9 @@ class UNetModel(nn.Module):
 
         self.output_blocks = nn.ModuleList([])
         for level, mult in list(enumerate(channel_mult))[::-1]:
+            self.output_blocks.append(AudioConcatBlock())
+            ch += audio_channels[level]
+
             for i in range(num_res_blocks + 1):
                 ich = input_block_chans.pop()
                 layers = [
@@ -416,7 +426,7 @@ class UNetModel(nn.Module):
         self.middle_block.apply(convert_module_to_f32)
         self.output_blocks.apply(convert_module_to_f32)
 
-    def forward(self, x, timesteps=None, context=None, **kwargs):
+    def forward(self, x, timesteps=None, context=None, *audios):
         """
         Apply the model to an input batch.
         :param x: an [N x C x T] Tensor of inputs.
@@ -431,30 +441,51 @@ class UNetModel(nn.Module):
         emb = self.time_embed(t_emb)
 
         h = x.type(self.dtype)
-        h = self.position_embedding(h)
+
+        audio_index = -len(self.channel_mult)
         for module in self.input_blocks:
-            h = module(h, emb, context)
-            hs.append(h)
+            if isinstance(module, AudioConcatBlock):
+                # print(f"Feed audio: {audio_index}")
+                h = module(h, audios[audio_index])
+                audio_index += 1
+            else:
+                h = module(h, emb, context)
+                hs.append(h)
+        assert audio_index == 0
+        audio_index -= 1
         h = self.middle_block(h, emb, context)
         for module in self.output_blocks:
-            h = th.cat([h, hs.pop()], dim=1)
-            h = module(h, emb, context)
+            if isinstance(module, AudioConcatBlock):
+                # print(f"Feed audio: {audio_index}")
+                h = module(h, audios[audio_index])
+                audio_index -= 1
+            else:
+                h = th.cat([h, hs.pop()], dim=1)
+                h = module(h, emb, context)
         h = h.type(x.dtype)
         return self.out(h)
 
     def summary(self):
-        import torchsummary
-        torchsummary.summary(self, [
-            (64, 256),  # note input (32) + wave input (32), C / T
-            (1,),  # time step
-            (128, 254)  # context input, C2 / T2
-        ],
-                             col_names=("output_size", "num_params", "kernel_size"),
-                             depth=10, device=th.device("cpu"))
+        pass
+        # import torchsummary
+        # torchsummary.summary(self, [
+        #     (16, 512),  # C / T
+        #     (1,),  # time step
+        #     (128, 254),  # context input, C2 / T2
+        #     (256, 512), # audio ?
+        #     (256, 512), # audio ?
+        #     (256, 512), # audio ?
+        #     (256, 512), # audio 1
+        #     (256, 256),  # audio 2
+        #     (512, 128),  # audio 3
+        #     (512, 64),  # audio 4
+        # ],
+        #                      col_names=("output_size", "num_params", "kernel_size"),
+        #                      depth=10, device=th.device("cpu"))
 
 
 if __name__ == '__main__':
-    UNetModel(in_channels=64, model_channels=64, out_channels=32,
-              num_res_blocks=1, attention_resolutions=[8, 4, 2],
+    UNetModel(in_channels=16, model_channels=128, out_channels=16,
+              num_res_blocks=2, attention_resolutions=[8, 4, 2],
               channel_mult=[1, 2, 3, 4], num_heads=8,
-              context_dim=64).summary()
+              context_dim=128, audio_channels=[256, 256, 512, 512]).summary()

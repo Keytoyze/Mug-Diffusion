@@ -318,8 +318,88 @@ class MelspectrogramEncoder1D(nn.Module):
                              depth=10, device=torch.device("cpu"))
 
 
+class MelspectrogramScaleEncoder1D(nn.Module):
+    def __init__(self, *, n_freq, middle_channels,
+                 attention_resolutions, num_heads,
+                 num_groups,
+                 channel_mult, num_res_blocks, use_checkpoint=True, **ignore_kwargs):
+        super().__init__()
+        self.num_resolutions = len(channel_mult)
+        self.num_res_blocks = num_res_blocks
+        self.use_checkpoint = use_checkpoint
+
+        self.conv_in = torch.nn.Conv1d(n_freq,
+                                       middle_channels,
+                                       kernel_size=3,
+                                       stride=1,
+                                       padding=1)
+        inchannel_mult = (1,) + tuple(channel_mult)
+        self.down = nn.ModuleList()
+        ds = 1
+        for i_level in range(self.num_resolutions):
+            block = nn.ModuleList()
+            attn = nn.ModuleList()
+            block_in = middle_channels * inchannel_mult[i_level]
+            block_out = middle_channels * channel_mult[i_level]
+            down = nn.Module()
+            if i_level != 0:
+                down.downsample = Downsample(block_in, True)
+                ds *= 2
+                # print(ds)
+            for i_block in range(self.num_res_blocks):
+                block.append(ResnetBlock(in_channels=block_in,
+                                         out_channels=block_out,
+                                         temb_channels=0,
+                                         dropout=0,
+                                         dims=1,
+                                         use_checkpoint=use_checkpoint,
+                                         dilations=(1, 2) if i_block % 2 == 0 else (4, 8),
+                                         num_groups=num_groups))
+                if ds in attention_resolutions:
+                    dim_head = block_out // num_heads
+                    attn.append(
+                        ContextualTransformer(
+                            block_out, num_heads, dim_head, depth=1
+                        )
+                    )
+                block_in = block_out
+            down.block = block
+            down.attn = attn
+
+            self.down.append(down)
+
+    def forward(self, x):
+
+        # downsampling
+        h = self.conv_in(x)
+        hs = []
+        for i_level in range(self.num_resolutions):
+            if i_level != 0:
+                h = self.down[i_level].downsample(h)
+            for i_block in range(self.num_res_blocks):
+                h = self.down[i_level].block[i_block](h)
+                if len(self.down[i_level].attn) > 0:
+                    h = self.down[i_level].attn[i_block](h)
+            hs.append(h)
+
+        return hs
+        # return hs[-1]
+
+    def summary(self):
+        import torchsummary
+        torchsummary.summary(self, [
+            (128, 32768),
+        ],
+                             col_names=("output_size", "num_params", "kernel_size"),
+                             depth=4, device=torch.device("cpu"))
+
+
+
 if __name__ == '__main__':
     # MelspectrogramEncoder1D(n_freq=128, middle_channels=96, out_channels=32,
     #                         num_res_blocks=2, channel_mult=[1, 1, 2, 2, 2, 4, 4]).summary()
-    STFTEncoder(n_fft=2048, middle_channels=128, out_channels=32,
-                  num_res_blocks=2, channel_mult=[1, 2, 2, 2, 4, 4, 4]).summary()
+    # STFTEncoder(n_fft=2048, middle_channels=128, out_channels=32,
+    #               num_res_blocks=2, channel_mult=[1, 2, 2, 2, 4, 4, 4]).summary()
+    MelspectrogramScaleEncoder1D(n_freq=128, middle_channels=128, attention_resolutions=[128, 256, 512],
+                                 num_heads=8, num_groups=32, channel_mult=[1, 1, 1, 1, 2, 2, 2, 4, 4, 4],
+                                 num_res_blocks=2).summary()

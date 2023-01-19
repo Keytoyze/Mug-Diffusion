@@ -4,7 +4,7 @@ from mug.model.models import *
 class ManiaReconstructLoss(torch.nn.Module):
 
     def __init__(self, weight_start_offset=1.0, weight_holding=1.0, weight_end_offset=1.0,
-                 label_smoothing=0.0):
+                 label_smoothing=0.0, gamma=2.0):
         super(ManiaReconstructLoss, self).__init__()
         self.weight_start_offset = weight_start_offset
         self.weight_holding = weight_holding
@@ -12,12 +12,15 @@ class ManiaReconstructLoss(torch.nn.Module):
         self.bce_loss = torch.nn.BCEWithLogitsLoss(reduction='none')
         self.mse_loss = torch.nn.MSELoss(reduction='none')
         self.label_smoothing = label_smoothing
+        self.gamma = gamma
 
     def label_smoothing_bce_loss(self, predicts, targets):
+        # p = torch.sigmoid(predicts)
+        # p_t = p * targets + (1 - p) * (1 - targets)
         return self.bce_loss(
             predicts,
             targets * (1 - 2 * self.label_smoothing) + self.label_smoothing,
-        )
+        )# * ((1 - p_t) ** self.gamma)
 
     def get_key_loss(self, inputs: torch.Tensor, reconstructions: torch.Tensor, valid: torch.Tensor,
                      key_count, loss_func, index) -> torch.Tensor:
