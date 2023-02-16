@@ -4,11 +4,12 @@
   max: 8
   interval: 0.2
 
-#- name: rank_status
-#  type: category
-#  category:
-#    - ranked, rank
-#    - loved, love
+- name: rank_status
+  type: category
+  category:
+    - ranked
+    - loved
+    - graveyard
 
 - name: ln_ratio
   type: numeric
@@ -25,7 +26,74 @@
 - name: ln
   type: bool
 
+- name: ett
+  type: numeric
+  min: 5
+  max: 35
+  interval: 1
+
+- name: stamina_ett
+  type: numeric
+  min: 5
+  max: 35
+  interval: 1
+
+- name: stamina
+  type: bool
+
+- name: stream_ett
+  type: numeric
+  min: 5
+  max: 35
+  interval: 1
+
+- name: stream
+  type: bool
+
+- name: jumpstream_ett
+  type: numeric
+  min: 5
+  max: 35
+  interval: 1
+
+- name: jumpstream
+  type: bool
+
+- name: handstream_ett
+  type: numeric
+  min: 5
+  max: 35
+  interval: 1
+
+- name: handstream
+  type: bool
+
+- name: jackspeed_ett
+  type: numeric
+  min: 5
+  max: 35
+  interval: 1
+
+- name: jackspeed
+  type: bool
+
+- name: chordjack_ett
+  type: numeric
+  min: 5
+  max: 35
+  interval: 1
+
+- name: chordjack
+  type: bool
+
+- name: technical_ett
+  type: numeric
+  min: 5
+  max: 35
+  interval: 1
+
+- name: technical
+  type: bool
+
 
 # TODO: mapper
-# TODO: minacalc
-# TODO: diff name

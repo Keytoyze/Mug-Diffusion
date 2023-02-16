@@ -16,6 +16,7 @@ from pytorch_lightning.utilities.distributed import rank_zero_only
 
 from mug import util
 from mug.data.convertor import *
+import minacalc
 
 
 class OsuDataset(Dataset):
@@ -176,17 +177,22 @@ class OsuDataset(Dataset):
         column_names = [description[0] for description in list(cursor.description)]
         result = cursor.fetchone()
         feature_dict = {}
-        if result is not None:
-            for i in range(len(column_names)):
-                if random.random() >= dropout_prob:
-                    feature_dict[column_names[i]] = result[i]
-                    if column_names[i] == 'sr' and rate != 1.0:
-                        if rate > 1:
-                            star_ratio = 0.8184 * (rate - 1) + 1
-                        else:
-                            star_ratio = 1 / (0.8184 * (1 / rate - 1) + 1)
-                        # print(f"change sr: {result[i]} -> {result[i] * star_ratio}, since rate change: x{rate}.")
-                        feature_dict[column_names[i]] = result[i] * star_ratio
+        assert result is not None # ignore junk files
+        assert 1 <= result['sr'] <= 9 # ignore too easy or hard files
+
+        # etterna scores
+
+
+        for i in range(len(column_names)):
+            if random.random() >= dropout_prob:
+                feature_dict[column_names[i]] = result[i]
+                if column_names[i] == 'sr' and rate != 1.0:
+                    if rate > 1:
+                        star_ratio = 0.8184 * (rate - 1) + 1
+                    else:
+                        star_ratio = 1 / (0.8184 * (1 / rate - 1) + 1)
+                    # print(f"change sr: {result[i]} -> {result[i] * star_ratio}, since rate change: x{rate}.")
+                    feature_dict[column_names[i]] = result[i] * star_ratio
         emb_ids = util.feature_dict_to_embedding_ids(feature_dict, self.feature_yaml)
         # print(f"{path} -> {emb_ids}")
         return emb_ids

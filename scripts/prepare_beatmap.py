@@ -24,8 +24,8 @@ def prepare_local_beatmaps(song_dir, mode_int, out_dir, cs):
     set_names = os.listdir(song_dir)
     results = []
     for set_name in tqdm(set_names):
-        file_names = os.listdir(os.path.join(song_dir, set_name))
         try:
+            file_names = os.listdir(os.path.join(song_dir, set_name))
             for file_name in file_names:
                 if file_name.endswith(".osu"):
                     path = os.path.join(song_dir, set_name, file_name)

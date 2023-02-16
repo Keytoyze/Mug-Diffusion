@@ -16,6 +16,7 @@ class BeatmapMeta:
     convertor: 'BaseOsuConvertor' = None
     cs: float = 0
     version: str = ""
+    set_id: int = -1
     file_meta: List[str] = field(default_factory=lambda: [])
 
     def for_batch(self):
@@ -66,6 +67,8 @@ def parse_osu_file(osu_path, convertor_params: Optional[dict]) -> Tuple[List[str
             elif parsing_context == "[Metadata]":
                 if line.startswith("Version"):
                     meta.version = read_item(line)
+                elif line.startswith("BeatmapSetID"):
+                    meta.set_id = int(read_item(line))
 
             elif parsing_context == "[Difficulty]":
                 if line.startswith("CircleSize"):

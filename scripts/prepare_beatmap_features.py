@@ -10,8 +10,12 @@ import numpy as np
 import yaml
 from tqdm import tqdm
 
-from mug.data.convertor import *
 import matplotlib.pyplot as plt
+import minacalc
+import sys
+import os
+sys.path.append(os.getcwd())
+from mug.data.convertor import *
 
 
 def execute_sql(conn: sqlite3.Connection, sql: str, parameters=None):
@@ -86,13 +90,79 @@ def get_star(path, osu_tools, update_dict):
     update_dict['sr'] = sr
     return True
 
+def get_ob_and_meta(path, update_dict):
+    if "_ob" not in update_dict or "_meta" not in update_dict:
+        update_dict["_ob"], update_dict["_meta"] = parse_osu_file(path, None)
+    return update_dict["_ob"], update_dict["_meta"]
+
+def get_rank_status(path, update_dict, rank_maps):
+    rank_status = update_dict.get("rank_status", None)
+    if rank_status is not None and rank_status != "NULL":
+        return False
+    _, meta = get_ob_and_meta(path, update_dict)
+    update_dict["rank_status"] = rank_maps.get(meta.set_id, "graveyard")
+    return True
+
+def get_ett_scores(path, update_dict):
+    ett = update_dict.get("ett", 0)
+    if ett != 0:
+        return False
+
+    ob, _ = get_ob_and_meta(path, update_dict)
+    notes = []
+
+    for line in ob:
+        if line.strip() == "":
+            continue
+        try:
+            params = line.split(",")
+            start = int(params[2])
+            column = int(int(float(params[0])) / int(512 / 4))
+            assert column <= 3
+            notes.append((start, column))
+        except:
+            pass
+
+    result = minacalc.calc_skill_set(1.0, notes)
+    keys = [
+        "overall",
+        "stream",
+        "jumpstream",
+        "handstream",
+        "stamina",
+        "jackspeed",
+        "chordjack",
+        "technical",
+    ]
+    result = dict(zip(keys, result))
+    result_patterns = result.copy()
+    del result_patterns['overall']
+    del result_patterns['stamina']
+    max_score = max(result_patterns.values())
+
+    update_dict.update({
+        "ett": result['overall'],
+        "stream_ett": result['stream'],
+        "jumpstream_ett": result['jumpstream'],
+        "handstream_ett": result['handstream'],
+        "jackspeed_ett": result['jackspeed'],
+        "chordjack_ett": result['chordjack'],
+        "technical_ett": result['technical'],
+        "stamina_ett": result['stamina'],
+        "stream": int(max_score - result['stream'] <= 1),
+        "jumpstream": int(max_score - result['jumpstream'] <= 1),
+        "handstream": int(max_score - result['handstream'] <= 1),
+        "jackspeed": int(max_score - result['jackspeed'] <= 1),
+        "chordjack": int(max_score - result['chordjack'] <= 1),
+        "technical": int(max_score - result['technical'] <= 1),
+    })
 
 def get_ln_ratio(path, update_dict):
     ln_ratio = update_dict.get("ln_ratio", None)
     if ln_ratio is not None:
         return False
 
-    ob, _ = parse_osu_file(path, None)
+    ob, _ = get_ob_and_meta(path, update_dict)
 
     ln = 0
     rc = 0
@@ -116,21 +186,57 @@ def get_ln_ratio(path, update_dict):
         'ln': int(is_ln),
         'hb': int(is_hb)
     })
+    assert "ln_ratio" in update_dict
     return True
 
+def get_columns_by_cursor(cursor):
+    descriptions = list(cursor.description)
+    return [description[0] for description in descriptions]
 
-def prepare_features(beatmap_txt, features_yaml, osu_tools):
+def ensure_column(conn: sqlite3.Connection, table_name: str,
+                  name_type_default):
+    columns = get_columns_by_cursor(conn.execute("SELECT * FROM Feature"))
+    for name, db_type, default in name_type_default:
+        if name not in columns:
+            if default is not None:
+                statement = ("ALTER TABLE %s ADD COLUMN %s %s DEFAULT `%s`" % (
+                    table_name, name, db_type, default
+                ))
+            else:
+                statement = ("ALTER TABLE %s ADD COLUMN %s %s" % (
+                    table_name, name, db_type
+                ))
+            execute_sql(conn, statement)
+
+def prepare_features(beatmap_txt, features_yaml, osu_tools, ranked_map_path):
     features_yaml = yaml.safe_load(open(features_yaml))
+    ranked_maps = {}
+    with open(ranked_map_path) as f:
+        for line in f:
+            set_id, status = line.strip().split(" ")
+            ranked_maps[int(set_id)] = status
+
     conn = sqlite3.connect(os.path.join(os.path.dirname(beatmap_txt), 'feature.db'))
     type_map = {
-        'numeric': 'REAL DEFAULT 0.0',
-        'category': 'TEXT DEFAULT NULL',
-        'bool': 'INT DEFAULT -1'
+        'numeric': 'REAL',
+        'category': 'TEXT',
+        'bool': 'INT'
     }
-    create_table(conn, "Feature", ['name TEXT', 'set_name TEXT'] + list(map(
-        lambda x: x['name'].split(",")[-1].strip() + ' ' + type_map[x['type']],
-        features_yaml
-    )), ['name', 'set_name'])
+    default_map = {
+        'numeric': '0.0',
+        'category': 'NULL',
+        'bool': '-1'
+    }
+    create_table(conn, "Feature", ['name TEXT', 'set_name TEXT'], ['name', 'set_name'])
+
+    for x in features_yaml:
+        ensure_column(conn, "Feature", [(
+            x['name'].split(",")[-1].strip(),
+            type_map[x['type']],
+            default_map[x['type']]
+        )])
+
+
     stars = []
     ln_ratios = []
 
@@ -158,26 +264,35 @@ def prepare_features(beatmap_txt, features_yaml, osu_tools):
 
             update = get_star(path, osu_tools, update_dict) or update
             update = get_ln_ratio(path, update_dict) or update
+            update = get_rank_status(path, update_dict, ranked_maps) or update
+            update = get_ett_scores(path, update_dict) or update
 
             stars.append(update_dict['sr'])
             ln_ratios.append(update_dict['ln_ratio'])
         except:
             traceback.print_exc()
+
+            if '_ob' in update_dict:
+                del update_dict["_ob"]
+                del update_dict["_meta"]
             print(update_dict)
             continue
 
         if update:
+            if '_ob' in update_dict:
+                del update_dict["_ob"]
+                del update_dict["_meta"]
             insert_or_replace(conn, "Feature", [update_dict])
 
             conn.commit()
 
-    stars = np.asarray(stars)
-    stars = np.clip(stars, 1, 8)
-    plt.hist(stars, bins=np.arange(1, 8.1, 0.2))
-    plt.show()
-
-    plt.hist(ln_ratios, bins=10)
-    plt.show()
+    # stars = np.asarray(stars)
+    # stars = np.clip(stars, 1, 8)
+    # plt.hist(stars, bins=np.arange(1, 8.1, 0.2))
+    # plt.show()
+    #
+    # plt.hist(ln_ratios, bins=10)
+    # plt.show()
 
 
 
@@ -194,7 +309,9 @@ if __name__ == '__main__':
                         type=str)
     parser.add_argument('--osu_tools',
                         type=str)
+    parser.add_argument('--ranked_map_path',
+                        type=str)
 
     opt, _ = parser.parse_known_args()
 
-    prepare_features(opt.beatmap_txt, opt.features_yaml, opt.osu_tools)
+    prepare_features(opt.beatmap_txt, opt.features_yaml, opt.osu_tools, opt.ranked_map_path)
