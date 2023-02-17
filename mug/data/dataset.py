@@ -165,7 +165,7 @@ class OsuDataset(Dataset):
         np.savez_compressed(cache_path, y=y)
         return y
 
-    def load_feature(self, path, dropout_prob=0, rate=1.0):
+    def load_feature(self, path, objs, dropout_prob=0, rate=1.0):
         name = os.path.basename(path)
         set_name = os.path.basename(os.path.dirname(path))
         feature_conn = sqlite3.Connection(os.path.join(
@@ -177,23 +177,76 @@ class OsuDataset(Dataset):
         column_names = [description[0] for description in list(cursor.description)]
         result = cursor.fetchone()
         feature_dict = {}
+        feature_dict_dropout = {}
         assert result is not None # ignore junk files
-        assert 1 <= result['sr'] <= 9 # ignore too easy or hard files
 
         # etterna scores
+        notes = []
+        for line in objs:
+            if line.strip() == "":
+                continue
+            try:
+                params = line.split(",")
+                start = int(params[2])
+                column = int(int(float(params[0])) / int(512 / 4))
+                assert column <= 3
+                notes.append((start, column))
+            except:
+                pass
+        result_minacalc = minacalc.calc_skill_set(rate, notes)
+        keys = [
+            "overall",
+            "stream",
+            "jumpstream",
+            "handstream",
+            "stamina",
+            "jackspeed",
+            "chordjack",
+            "technical",
+        ]
+        result_minacalc = dict(zip(keys, result_minacalc))
+        result_patterns = result_minacalc.copy()
+        del result_patterns['overall']
+        del result_patterns['stamina']
+        max_score = max(result_patterns.values())
 
-
+        # process features
         for i in range(len(column_names)):
+            feature_dict[column_names[i]] = result[i]
+            if column_names[i] == 'sr' and rate != 1.0:
+                assert 1 <= result[i] <= 9 # ignore too easy or hard files
+                if rate > 1:
+                    star_ratio = 0.8184 * (rate - 1) + 1
+                else:
+                    star_ratio = 1 / (0.8184 * (1 / rate - 1) + 1)
+                # print(f"change sr: {result[i]} -> {result[i] * star_ratio}, since rate change: x{rate}.")
+                feature_dict[column_names[i]] = result[i] * star_ratio
+        
+        # replace minacalc features
+        # print(f"rate: {rate}, ett: {result_minacalc['overall']}/{feature_dict['ett']}")
+        feature_dict.update({
+            "ett": result_minacalc['overall'],
+            "stream_ett": result_minacalc['stream'],
+            "jumpstream_ett": result_minacalc['jumpstream'],
+            "handstream_ett": result_minacalc['handstream'],
+            "jackspeed_ett": result_minacalc['jackspeed'],
+            "chordjack_ett": result_minacalc['chordjack'],
+            "technical_ett": result_minacalc['technical'],
+            "stamina_ett": result_minacalc['stamina'],
+            "stream": int(max_score - result_minacalc['stream'] <= 1),
+            "jumpstream": int(max_score - result_minacalc['jumpstream'] <= 1),
+            "handstream": int(max_score - result_minacalc['handstream'] <= 1),
+            "jackspeed": int(max_score - result_minacalc['jackspeed'] <= 1),
+            "chordjack": int(max_score - result_minacalc['chordjack'] <= 1),
+            "technical": int(max_score - result_minacalc['technical'] <= 1),
+        })
+
+        # dropout feature
+        for k in feature_dict:
             if random.random() >= dropout_prob:
-                feature_dict[column_names[i]] = result[i]
-                if column_names[i] == 'sr' and rate != 1.0:
-                    if rate > 1:
-                        star_ratio = 0.8184 * (rate - 1) + 1
-                    else:
-                        star_ratio = 1 / (0.8184 * (1 / rate - 1) + 1)
-                    # print(f"change sr: {result[i]} -> {result[i] * star_ratio}, since rate change: x{rate}.")
-                    feature_dict[column_names[i]] = result[i] * star_ratio
-        emb_ids = util.feature_dict_to_embedding_ids(feature_dict, self.feature_yaml)
+                feature_dict_dropout[k] = feature_dict[k]
+
+        emb_ids = util.feature_dict_to_embedding_ids(feature_dict_dropout, self.feature_yaml)
         # print(f"{path} -> {emb_ids}")
         return emb_ids
 
@@ -271,7 +324,7 @@ class OsuDataset(Dataset):
 
             if self.with_feature:
                 example["feature"] = np.asarray(
-                    self.load_feature(beatmap_meta.path, self.feature_dropout_p, convertor_params["rate"])
+                    self.load_feature(beatmap_meta.path, objs, self.feature_dropout_p, convertor_params["rate"])
                 )
             return example
         except Exception as e:

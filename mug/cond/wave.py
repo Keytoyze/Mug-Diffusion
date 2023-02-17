@@ -359,7 +359,7 @@ class MelspectrogramScaleEncoder1D(nn.Module):
                     dim_head = block_out // num_heads
                     attn.append(
                         ContextualTransformer(
-                            block_out, num_heads, dim_head, depth=1
+                            block_out, num_heads, dim_head, depth=1, checkpoint=use_checkpoint
                         )
                     )
                 block_in = block_out

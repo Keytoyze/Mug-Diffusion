@@ -67,6 +67,7 @@ class DDPM(pl.LightningModule):
                  loss_type="l2",
                  ckpt_path=None,
                  ignore_keys=[],
+                 training_keys=None,
                  load_only_unet=False,
                  monitor="val/loss",
                  log_every_t=100,
@@ -120,6 +121,7 @@ class DDPM(pl.LightningModule):
 
         self.loss_type = loss_type
         self.generator = None
+        self.training_keys = training_keys
 
         self.learn_logvar = learn_logvar
         self.logvar = torch.full(fill_value=logvar_init, size=(self.num_timesteps,))
@@ -194,7 +196,7 @@ class DDPM(pl.LightningModule):
         keys = list(sd.keys())
         for k in keys:
             for ik in ignore_keys:
-                if k.startswith(ik):
+                if self.hit_parameter(k, ik):
                     print("Deleting key {} from state_dict.".format(k))
                     del sd[k]
         missing, unexpected = self.load_state_dict(sd,
@@ -453,15 +455,32 @@ class DDPM(pl.LightningModule):
         #     self.noise_losses[f"noise_level_{level}"] = noise_loss.item()
         # self.log(f"noise_level_{level}", self.noise_losses[f"noise_level_{level}"])
 
+    def hit_parameter(self, name, config_key):
+        if config_key.startswith("#"):
+            config_key = config_key[1:]
+            return config_key in name
+        else:
+            return name.startswith(config_key)
+
     def configure_optimizers(self):
         lr = self.learning_rate
         params = []
+            
         for n, p in self.model.named_parameters():
-            if not p.requires_grad:
-                pass
-                # print(f"Freeze param: {n})")
-            else:
-                params.append(p)
+            if self.training_keys is not None:
+                requires_grad = False
+                for k in self.training_keys:
+                    if self.hit_parameter(n, k):
+                        requires_grad = True
+                        
+                        print(f"Only train: {n}")
+                        break
+                p.requires_grad = requires_grad
+
+            # if not p.requires_grad:
+            #     pass
+            # else:
+            params.append(p)
         if self.learn_logvar:
             params = params + [self.logvar]
         opt = torch.optim.AdamW(params, lr=lr)
