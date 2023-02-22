@@ -483,6 +483,7 @@ class DDPM(pl.LightningModule):
             params.append(p)
         if self.learn_logvar:
             params = params + [self.logvar]
+        # opt = torch.optim.SGD(params, lr=lr, momentum=0.9, weight_decay=1e-6)
         opt = torch.optim.AdamW(params, lr=lr)
 
         if self.use_scheduler:

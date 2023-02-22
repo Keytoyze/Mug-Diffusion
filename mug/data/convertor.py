@@ -141,7 +141,7 @@ class OsuManiaConvertor(BaseOsuConvertor):
     """
 
     def read_time(self, text):
-        t = int(text) / self.rate + self.offset_ms
+        t = int(float(text)) / self.rate + self.offset_ms
         index = int(t / self.frame_ms)
         offset = (t - index * self.frame_ms) / self.frame_ms
         return int(round(t)), index, offset
@@ -184,7 +184,8 @@ class OsuManiaConvertor(BaseOsuConvertor):
                          meta: BeatmapMeta) -> Tuple[np.ndarray, np.ndarray]:
         key_count = int(meta.cs)
         column_width = int(512 / key_count)
-        array = np.zeros((self.max_frame, key_count * 4),
+        array_length = min(self.max_frame, int(self.max_frame / self.rate))
+        array = np.zeros((array_length, key_count * 4),
                          dtype=np.float32)
         max_index = 0
 
@@ -225,6 +226,11 @@ class OsuManiaConvertor(BaseOsuConvertor):
                 array[end_index, column + key_count * 3] = end_offset
                 max_index = max(end_index, max_index)
 
+        if len(array) < self.max_frame:
+            array = np.concatenate([
+                array,
+                np.zeros((self.max_frame - len(array), array.shape[1]), dtype=np.float32)
+            ], axis=0)
         valid_flag = np.zeros((len(array),))
         valid_flag[:max_index] = 1
         array = np.transpose(array)

@@ -2,7 +2,7 @@
 CUDA_VISIBLE_DEVICES=3 python main.py --base configs/mug/autoencoder.yaml -t --gpus 0,  --accelerator cuda
 
 CUDA_VISIBLE_DEVICES=3 python main.py --base configs/mug/mug_diffusion.yaml -t --gpus 0,  --accelerator cuda
-CUDA_VISIBLE_DEVICES=3 python main.py --base configs/mug/mug_diffusion.yaml -t --gpus 0  --accelerator cuda --strategy ddp --scale_lr False
+CUDA_VISIBLE_DEVICES=0 python main.py --base configs/mug/mug_diffusion.yaml -t --gpus 0,  --accelerator cuda --scale_lr False
 
 
 CUDA_VISIBLE_DEVICES=3 python main.py --base configs/mug/mug_diffusion_stft.yaml -t --gpus 0,  --accelerator cuda

@@ -4,7 +4,7 @@ import numpy as np
 import argparse
 
 parser = argparse.ArgumentParser()
-parser.add_argument('params', metavar='str', nargs='+', type=str)
+parser.add_argument('params', metavar='str', nargs='+', type=str, default=['val/loss', 'train/loss_epoch'])
 parser.add_argument('--ylim', type=str, default=None)
 args = parser.parse_args()
 
@@ -51,14 +51,19 @@ def process(name, index, monitor='val/loss'):
 # print(val_loss)
 
 files = [
-    "/var/chenmouxiang/mug-diffusion/logs/2023-01-09T02-49-54_mug_diffusion/testtube/version_0/metrics.csv",
-    "/var/chenmouxiang/mug-diffusion/logs/2023-01-09T15-15-05_mug_diffusion/testtube/version_0/metrics.csv",
-    "/var/chenmouxiang/mug-diffusion/logs/2023-01-10T11-40-10_mug_diffusion/testtube/version_0/metrics.csv",
-    "/var/chenmouxiang/mug-diffusion/logs/2023-01-11T16-06-03_mug_diffusion/testtube/version_0/metrics.csv",
-    "/var/chenmouxiang/mug-diffusion/logs/2023-01-14T01-53-07_mug_diffusion/testtube/version_0/metrics.csv",
-    "/var/chenmouxiang/mug-diffusion/logs/2023-01-14T13-17-38_mug_diffusion/testtube/version_0/metrics.csv",
-    # "/var/chenmouxiang/mug-diffusion/logs/2023-02-17T00-54-17_mug_diffusion/testtube/version_0/metrics.csv",
-    "/var/chenmouxiang/mug-diffusion/logs/2023-02-17T13-37-06_mug_diffusion/testtube/version_0/metrics.csv",
+    # "/var/chenmouxiang/mug-diffusion/logs/2023-01-09T02-49-54_mug_diffusion/testtube/version_0/metrics.csv",
+    # "/var/chenmouxiang/mug-diffusion/logs/2023-01-09T15-15-05_mug_diffusion/testtube/version_0/metrics.csv",
+    # "/var/chenmouxiang/mug-diffusion/logs/2023-01-10T11-40-10_mug_diffusion/testtube/version_0/metrics.csv",
+    # "/var/chenmouxiang/mug-diffusion/logs/2023-01-11T16-06-03_mug_diffusion/testtube/version_0/metrics.csv",
+    # "/var/chenmouxiang/mug-diffusion/logs/2023-01-14T01-53-07_mug_diffusion/testtube/version_0/metrics.csv",
+    "logs/2023-01-14T13-17-38_mug_diffusion/testtube/version_0/metrics.csv",
+    "logs/2023-02-18T01-42-12_mug_diffusion/testtube/version_0/metrics.csv",
+    "logs/2023-02-18T14-44-56_mug_diffusion/testtube/version_0/metrics.csv",
+    "logs/2023-02-18T15-38-29_mug_diffusion/testtube/version_0/metrics.csv",
+    "logs/2023-02-18T18-45-54_mug_diffusion/testtube/version_0/metrics.csv",
+    "logs/2023-02-20T16-05-53_mug_diffusion/testtube/version_0/metrics.csv",
+    "logs/2023-02-21T22-30-55_mug_diffusion/testtube/version_0/metrics.csv",
+    "logs/2023-02-22T16-02-43_mug_diffusion/testtube/version_0/metrics.csv"
 ]
 
 
@@ -86,3 +91,9 @@ if args.ylim is not None:
     plt.ylim(float(ylim[0]), float(ylim[1]))
 plt.legend()
 plt.savefig("result.pdf")
+
+
+# a = 0
+# for i in range(3):
+#     a += beta[i] * np.power(10, 0.1 * Lp[i])
+# Lp = 10 * np.log10(a)

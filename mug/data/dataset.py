@@ -1,8 +1,10 @@
+import librosa
+
 import torch
 import sqlite3
 
 import audioread.ffdec
-import librosa
+
 import soundfile
 import yaml
 from pytorch_lightning import Callback
@@ -10,9 +12,9 @@ from torch.utils.data import Dataset
 import cv2
 import hashlib
 from pytorch_lightning.utilities.distributed import rank_zero_only
-# import sys
-# import os
-# sys.path.append(os.getcwd())
+import sys
+import os
+sys.path.append(os.getcwd())
 
 from mug import util
 from mug.data.convertor import *
@@ -178,18 +180,21 @@ class OsuDataset(Dataset):
         result = cursor.fetchone()
         feature_dict = {}
         feature_dict_dropout = {}
-        assert result is not None # ignore junk files
+        assert result is not None, "junk files" # ignore junk files
 
         # etterna scores
         notes = []
+        max_note_time = min(self.max_duration, self.max_duration * rate) * 1000
         for line in objs:
             if line.strip() == "":
                 continue
             try:
                 params = line.split(",")
                 start = int(params[2])
+                if start >= max_note_time:
+                    continue
                 column = int(int(float(params[0])) / int(512 / 4))
-                assert column <= 3
+                assert column <= 3, "invalid column"
                 notes.append((start, column))
             except:
                 pass
@@ -214,7 +219,8 @@ class OsuDataset(Dataset):
         for i in range(len(column_names)):
             feature_dict[column_names[i]] = result[i]
             if column_names[i] == 'sr' and rate != 1.0:
-                assert 1 <= result[i] <= 9 # ignore too easy or hard files
+                assert 0.5 <= result[i], "too easy"
+                assert result[i] <= 9, "too hard"
                 if rate > 1:
                     star_ratio = 0.8184 * (rate - 1) + 1
                 else:
@@ -248,7 +254,7 @@ class OsuDataset(Dataset):
 
         emb_ids = util.feature_dict_to_embedding_ids(feature_dict_dropout, self.feature_yaml)
         # print(f"{path} -> {emb_ids}")
-        return emb_ids
+        return feature_dict_dropout, emb_ids
 
     def __getitem__(self, i):
         path = self.beatmap_paths[i]
@@ -323,9 +329,9 @@ class OsuDataset(Dataset):
                 # breakpoint()
 
             if self.with_feature:
-                example["feature"] = np.asarray(
-                    self.load_feature(beatmap_meta.path, objs, self.feature_dropout_p, convertor_params["rate"])
-                )
+                feature_dict, feature = self.load_feature(beatmap_meta.path, objs, self.feature_dropout_p, convertor_params["rate"])
+                # example["feature_dict"] = feature_dict
+                example["feature"] = np.asarray(feature)
             return example
         except Exception as e:
             if path not in self.error_files:
@@ -345,7 +351,7 @@ class OsuTrainDataset(OsuDataset):
         super().__init__(**kwargs)
 
     def filter_beatmap_paths(self, beatmap_paths):
-        return beatmap_paths[:int(len(beatmap_paths) * 0.8)]
+        return beatmap_paths[:int(len(beatmap_paths))]
 
 
 class OsuValidDataset(OsuDataset):
@@ -354,7 +360,7 @@ class OsuValidDataset(OsuDataset):
         super().__init__(**kwargs)
 
     def filter_beatmap_paths(self, beatmap_paths):
-        return beatmap_paths[int(len(beatmap_paths) * 0.8):]
+        return beatmap_paths[int(len(beatmap_paths) * 0.9):]
 
 
 class BeatmapLogger(Callback):
@@ -402,7 +408,8 @@ if __name__ == '__main__':
     n_mels=128, cache_dir="data/audio_cache", with_audio=True, with_feature=True, 
     feature_yaml="configs/mug/mania_beatmap_features.yaml"
     )
-    dataset[0]
+    breakpoint()
+    # dataset[0]
 
 
     

@@ -319,7 +319,8 @@ class UNetModel(nn.Module):
                     layers.append(
                         ContextualTransformer(
                             ch, num_heads, dim_head, depth=transformer_depth,
-                            context_dim=context_dim, checkpoint=use_checkpoint
+                            context_dim=context_dim, checkpoint=use_checkpoint,
+                            dropout=dropout
                         )
                     )
                 self.input_blocks.append(TimestepEmbedSequential(*layers))
@@ -353,7 +354,7 @@ class UNetModel(nn.Module):
             ),
             ContextualTransformer(
                 ch, num_heads, dim_head, depth=transformer_depth, context_dim=context_dim, 
-                checkpoint=use_checkpoint
+                checkpoint=use_checkpoint, dropout=dropout
             ),
             TimestepResBlock(
                 ch,
@@ -394,7 +395,8 @@ class UNetModel(nn.Module):
                     layers.append(
                         ContextualTransformer(
                             ch, num_heads, dim_head, depth=transformer_depth,
-                            context_dim=context_dim, checkpoint=use_checkpoint
+                            context_dim=context_dim, checkpoint=use_checkpoint,
+                            dropout=dropout
                         )
                     )
                 if level and i == num_res_blocks:

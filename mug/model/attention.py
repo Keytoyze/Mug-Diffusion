@@ -70,6 +70,8 @@ class CrossAttention(nn.Module):
         super().__init__()
         inner_dim = dim_head * heads
         context_dim = default(context_dim, query_dim)
+        self.context_dim = context_dim
+        self.query_dim = query_dim
 
         self.scale = dim_head ** -0.5
         self.heads = heads
@@ -91,6 +93,7 @@ class CrossAttention(nn.Module):
 
         q = self.to_q(x)
         context = default(context, x)
+        # print('context', context.shape, 'x', x.shape, 'context_dim', self.context_dim, 'query_dim', self.query_dim)
         k = self.to_k(context)
         v = self.to_v(context)
 

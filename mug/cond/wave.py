@@ -322,7 +322,8 @@ class MelspectrogramScaleEncoder1D(nn.Module):
     def __init__(self, *, n_freq, middle_channels,
                  attention_resolutions, num_heads,
                  num_groups,
-                 channel_mult, num_res_blocks, use_checkpoint=True, **ignore_kwargs):
+                 channel_mult, num_res_blocks, use_checkpoint=True, dropout=0.0, 
+                 **ignore_kwargs):
         super().__init__()
         self.num_resolutions = len(channel_mult)
         self.num_res_blocks = num_res_blocks
@@ -350,7 +351,7 @@ class MelspectrogramScaleEncoder1D(nn.Module):
                 block.append(ResnetBlock(in_channels=block_in,
                                          out_channels=block_out,
                                          temb_channels=0,
-                                         dropout=0,
+                                         dropout=dropout,
                                          dims=1,
                                          use_checkpoint=use_checkpoint,
                                          dilations=(1, 2) if i_block % 2 == 0 else (4, 8),
@@ -359,7 +360,8 @@ class MelspectrogramScaleEncoder1D(nn.Module):
                     dim_head = block_out // num_heads
                     attn.append(
                         ContextualTransformer(
-                            block_out, num_heads, dim_head, depth=1, checkpoint=use_checkpoint
+                            block_out, num_heads, dim_head, depth=1, checkpoint=use_checkpoint, 
+                            dropout=dropout
                         )
                     )
                 block_in = block_out
