@@ -1,7 +1,9 @@
 from abc import abstractmethod
 
+import einops
 import numpy as np
 import torch as th
+import torch.nn
 import torch.nn as nn
 
 from mug.model.attention import ContextualTransformer
@@ -247,6 +249,7 @@ class UNetModel(nn.Module):
             num_heads=-1,
             num_head_channels=-1,
             use_scale_shift_norm=False,
+            lstm_last=False,
             transformer_depth=1,  # custom transformer support
             context_dim=None,  # custom transformer support
     ):
@@ -413,6 +416,14 @@ class UNetModel(nn.Module):
             zero_module(conv_nd(dims, model_channels, out_channels, 3, padding=1)),
         )
 
+        self.lstm_last = lstm_last
+        if lstm_last:
+            self.lstm = zero_module(torch.nn.LSTM(input_size=out_channels,
+                                                  hidden_size=model_channels,
+                                                  batch_first=True,
+                                                  num_layers=2))
+            self.lstm_out = zero_module(conv_nd(dims, model_channels, out_channels, 3, padding=1))
+
     def convert_to_fp16(self):
         """
         Convert the torso of the model to float16.
@@ -466,29 +477,38 @@ class UNetModel(nn.Module):
                 h = th.cat([h, hs.pop()], dim=1)
                 h = module(h, emb, context)
         h = h.type(x.dtype)
-        return self.out(h)
+        h = self.out(h)
+
+        if self.lstm_last:
+            h1 = einops.rearrange(h, "b c t -> b t c")
+            h1 = self.lstm(h1)[0]
+            h1 = einops.rearrange(h1, "b t c -> b c t")
+            h1 = self.lstm_out(torch.nn.SiLU()(h1))
+            h += h1
+        return h
 
     def summary(self):
         pass
-        # import torchsummary
-        # torchsummary.summary(self, [
-        #     (16, 512),  # C / T
-        #     (1,),  # time step
-        #     (128, 254),  # context input, C2 / T2
-        #     (256, 512), # audio ?
-        #     (256, 512), # audio ?
-        #     (256, 512), # audio ?
-        #     (256, 512), # audio 1
-        #     (256, 256),  # audio 2
-        #     (512, 128),  # audio 3
-        #     (512, 64),  # audio 4
-        # ],
-        #                      col_names=("output_size", "num_params", "kernel_size"),
-        #                      depth=10, device=th.device("cpu"))
+        import torchsummary
+        torchsummary.summary(self, [
+            (16, 512),  # C / T
+            (1,),  # time step
+            (128, 254),  # context input, C2 / T2
+            (256, 512), # audio ?
+            (256, 512), # audio ?
+            (256, 512), # audio ?
+            (256, 512), # audio 1
+            (256, 256),  # audio 2
+            (512, 128),  # audio 3
+            (512, 64),  # audio 4
+        ],
+                             col_names=("output_size", "num_params", "kernel_size"),
+                             depth=10, device=th.device("cpu"))
 
 
 if __name__ == '__main__':
     UNetModel(in_channels=16, model_channels=128, out_channels=16,
               num_res_blocks=2, attention_resolutions=[8, 4, 2],
               channel_mult=[1, 2, 3, 4], num_heads=8,
-              context_dim=128, audio_channels=[256, 256, 512, 512]).summary()
+              context_dim=128, audio_channels=[256, 256, 512, 512],
+              lstm_last=True).summary()
