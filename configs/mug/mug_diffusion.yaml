@@ -1,5 +1,5 @@
 model:
-  base_learning_rate: 0.000003
+  base_learning_rate: 0.00001
   # base_learning_rate: 5.0e-04
   target: mug.diffusion.diffusion.DDPM
   params:
@@ -11,7 +11,7 @@ model:
     z_length: 512
     parameterization: eps
     loss_type: l1
-    ckpt_path: logs/2023-02-21T22-30-55_mug_diffusion/checkpoints/last.ckpt
+    ckpt_path: logs/2023-02-24T17-14-56_mug_diffusion/checkpoints/epoch=000039.ckpt
     # ignore_keys: [ 'model.first_stage_model' ]
     # ignore_keys: [ 'model.cond_stage_model' ]
     monitor: val/loss_simple
@@ -37,6 +37,7 @@ model:
         num_heads: 8
         context_dim: 128
         dropout: 0.1
+        lstm_last: true
         audio_channels: [ 256,512,512,512 ]
         use_checkpoint: false
 
@@ -80,17 +81,17 @@ model:
         num_heads: 8
         num_groups: 32
         dropout: 0.1
-        use_checkpoint: false
+        use_checkpoint: true
         channel_mult: [ 1,1,1,1,2,2,2,4,4,4 ]
 
 
 data:
   target: main.DataModuleFromConfig
   params:
-    batch_size: 32
+    batch_size: 48
     wrap: False
     # num_workers: 0
-    num_workers: 10
+    num_workers: 7
     common_params:
       txt_file: "data/beatmap_4k/beatmap.txt"
       sr: 22050
@@ -142,4 +143,4 @@ lightning:
     benchmark: True
     accelerator: dp
     accumulate_grad_batches: 1
-    precision: 16
+    # precision: 16

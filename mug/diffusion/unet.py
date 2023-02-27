@@ -422,7 +422,11 @@ class UNetModel(nn.Module):
                                                   hidden_size=model_channels,
                                                   batch_first=True,
                                                   num_layers=2))
-            self.lstm_out = zero_module(conv_nd(dims, model_channels, out_channels, 3, padding=1))
+            self.lstm_out = nn.Sequential(
+                Normalize(model_channels),
+                nn.SiLU(),
+                zero_module(conv_nd(dims, model_channels, out_channels, 3, padding=1))
+            )
 
     def convert_to_fp16(self):
         """
@@ -483,27 +487,28 @@ class UNetModel(nn.Module):
             h1 = einops.rearrange(h, "b c t -> b t c")
             h1 = self.lstm(h1)[0]
             h1 = einops.rearrange(h1, "b t c -> b c t")
-            h1 = self.lstm_out(torch.nn.SiLU()(h1))
-            h += h1
+            h1 = self.lstm_out(h1)
+            h2 = h + h1
+            return h2
         return h
 
     def summary(self):
         pass
-        import torchsummary
-        torchsummary.summary(self, [
-            (16, 512),  # C / T
-            (1,),  # time step
-            (128, 254),  # context input, C2 / T2
-            (256, 512), # audio ?
-            (256, 512), # audio ?
-            (256, 512), # audio ?
-            (256, 512), # audio 1
-            (256, 256),  # audio 2
-            (512, 128),  # audio 3
-            (512, 64),  # audio 4
-        ],
-                             col_names=("output_size", "num_params", "kernel_size"),
-                             depth=10, device=th.device("cpu"))
+        # import torchsummary
+        # torchsummary.summary(self, [
+        #     (16, 512),  # C / T
+        #     (1,),  # time step
+        #     (128, 254),  # context input, C2 / T2
+        #     (256, 512), # audio ?
+        #     (256, 512), # audio ?
+        #     (256, 512), # audio ?
+        #     (256, 512), # audio 1
+        #     (256, 256),  # audio 2
+        #     (512, 128),  # audio 3
+        #     (512, 64),  # audio 4
+        # ],
+        #                      col_names=("output_size", "num_params", "kernel_size"),
+        #                      depth=10, device=th.device("cpu"))
 
 
 if __name__ == '__main__':

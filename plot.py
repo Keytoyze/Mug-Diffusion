@@ -63,7 +63,9 @@ files = [
     "logs/2023-02-18T18-45-54_mug_diffusion/testtube/version_0/metrics.csv",
     "logs/2023-02-20T16-05-53_mug_diffusion/testtube/version_0/metrics.csv",
     "logs/2023-02-21T22-30-55_mug_diffusion/testtube/version_0/metrics.csv",
-    "logs/2023-02-22T16-02-43_mug_diffusion/testtube/version_0/metrics.csv"
+    "logs/2023-02-22T16-02-43_mug_diffusion/testtube/version_0/metrics.csv",
+    "logs/2023-02-24T17-14-56_mug_diffusion/testtube/version_0/metrics.csv",
+    "logs/2023-02-26T15-55-17_mug_diffusion/testtube/version_0/metrics.csv"
 ]
 
 
