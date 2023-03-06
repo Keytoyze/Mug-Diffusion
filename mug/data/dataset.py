@@ -94,79 +94,6 @@ class OsuDataset(Dataset):
     def __len__(self):
         return len(self.beatmap_paths)
 
-    def load_audio_wave(self, audio_path, fallback_load_method=None):
-        
-        if len(fallback_load_method) == 0:
-            raise ValueError(f"Cannot load: {audio_path}")
-        # cache_name = (f"{os.path.basename(os.path.dirname(audio_path))}-"
-        #               f"{os.path.basename(audio_path)}")
-        # if not cache_name.endswith(".mp3"):
-        #     cache_name += ".mp3"
-        # cache_path = os.path.join(self.cache_dir, cache_name)
-        # if not os.path.exists(cache_path):
-        #     subprocess.run(['ffmpeg', '-hide_banner', '-loglevel', 
-        #     'error', '-i', audio_path, '-ar', str(self.sr), cache_path])
-        try:
-            audio = fallback_load_method[0](audio_path)
-            y, sr = librosa.load(audio, sr=self.sr, duration=self.max_duration)
-            # assert sr == self.sr, f"sr = {sr}, but config sr = {self.sr}"
-            if len(y) == 0:
-                raise ValueError("")
-            return y, sr
-        except:
-            return self.load_audio_wave(audio_path, fallback_load_method[1:])
-
-    def load_audio_without_cache(self, audio_path, mel=True):
-        # if '.mp3' in audio_path:
-        #     os.system(f"ffmpeg -i '{audio_path}' -ar 22050 '{audio_path.replace('.mp3', 'sr.mp3')}'")
-        #     audio_path = audio_path.replace('.mp3', 'sr.mp3')
-        y, sr = self.load_audio_wave(audio_path, [soundfile.SoundFile,
-                                                  audioread.ffdec.FFmpegAudioFile,
-                                                  lambda x: x,
-                                                #   soundfile.SoundFile
-                                                  ])
-        if mel:
-            y = librosa.feature.melspectrogram(y=y, sr=sr,
-                                               n_mels=self.n_mels,
-                                               hop_length=self.audio_hop_length,
-                                               n_fft=self.n_fft
-                                               )
-            y = np.log1p(y).astype(np.float16)
-        else:
-            # y_cuda = torch.FloatTensor(y).to('cuda:1')
-            # st = time.time()
-            # y2 = torch.stft(y_cuda, n_fft=self.n_fft, hop_length=self.audio_hop_length, return_complex=True).cpu().numpy()
-            # print(time.time() - st, 'torch')
-            # st = time.time()
-            y = librosa.stft(y=y, n_fft=self.n_fft, hop_length=self.audio_hop_length)
-            # print(time.time() - st, 'librosa')
-        return y
-
-    def load_audio(self, audio_path):
-        # cache_name = (f"{os.path.basename(os.path.dirname(audio_path))}-"
-        #               f"{os.path.basename(audio_path)}.npz")
-        # high_level_cache_path = os.path.join(self.cache_dir, "processed", cache_name)
-        # if os.path.exists(high_level_cache_path):
-        #     return np.load(high_level_cache_path)['y']
-        # result = self.load_audio_without_cache(audio_path)
-        # if abs(hash(cache_name)) % 5 == 1:
-        #     np.savez_compressed(high_level_cache_path, y=result)
-        # # print(audio_path, time.time() - st)
-        # return result
-
-
-        audio_path = audio_path.strip()
-        if self.cache_dir is None:
-            return self.load_audio_without_cache(audio_path)
-        cache_name = (f"{os.path.basename(os.path.dirname(audio_path))}-"
-                      f"{os.path.basename(audio_path)}.npz")
-        cache_path = os.path.join(self.cache_dir, cache_name)
-        if os.path.isfile(cache_path):
-            return np.load(cache_path)['y']
-        y = self.load_audio_without_cache(audio_path)
-        np.savez_compressed(cache_path, y=y)
-        return y
-
     def load_feature(self, path, objs, dropout_prob=0, rate=1.0):
         name = os.path.basename(path)
         set_name = os.path.basename(os.path.dirname(path))
@@ -283,7 +210,10 @@ class OsuDataset(Dataset):
             }
             if self.with_audio:
 
-                audio = self.load_audio(beatmap_meta.audio).astype(np.float32)
+                audio = util.load_audio(
+                    self.cache_dir, beatmap_meta.audio, self.n_mels, self.audio_hop_length,
+                    self.n_fft, self.sr, self.max_duration
+                ).astype(np.float32)
 
                 if convertor_params["rate"] != 1.0:
                     t = int(round(audio.shape[1] / convertor_params["rate"]))
@@ -303,34 +233,10 @@ class OsuDataset(Dataset):
                     f0 = random.randint(0, self.n_mels - f) # [0, v - f)
                     audio[f0:f0 + f, :] = 0
 
-                # audio = self.load_audio(beatmap_meta.audio)
-                # if convertor_params["rate"] != 1.0:
-                #     audio = librosa.phase_vocoder(audio, rate=convertor_params["rate"],
-                #                                   hop_length=self.audio_hop_length)
-                # t = audio.shape[1]
-                # audio = np.concatenate([
-                #     np.log1p(np.abs(audio)).reshape((1, -1, t)),
-                #     np.angle(audio).reshape((1, -1, t))
-                # ], axis=0)
-                # if t < self.max_audio_frame:
-                #     audio = np.concatenate([
-                #         audio,
-                #         np.zeros((2, self.n_fft // 2 + 1, self.max_audio_frame - t))
-                #     ], axis=2)
-                # elif t > self.max_audio_frame:
-                #     audio = audio[:, :, :self.max_audio_frame]
-
                 example["audio"] = audio.astype(np.float32)
-
-                # debug_data = np.zeros((16 + self.n_mels, self.max_audio_frame))
-                # for i in range(self.audio_note_window_ratio):
-                #     debug_data[:16, np.arange(i, self.max_audio_frame, self.audio_note_window_ratio)] = obj_array * 5
-                # debug_data[16:, :] = audio
-                # breakpoint()
 
             if self.with_feature:
                 feature_dict, feature = self.load_feature(beatmap_meta.path, objs, self.feature_dropout_p, convertor_params["rate"])
-                # example["feature_dict"] = feature_dict
                 example["feature"] = np.asarray(feature)
             return example
         except Exception as e:

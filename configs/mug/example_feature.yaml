@@ -1,0 +1,46 @@
+#sr: 4.5
+
+rank_status: ranked
+
+#sr: 10
+
+#ln_ratio: 0
+#
+#rc: 1
+#ln: 0
+#hb: 0
+
+#ln_ratio: 0.3
+
+
+#sr: 5
+
+#chordjack: 0
+#####chordjack_ett: 33
+####
+#stamina: 1
+####stamin_ett: 23
+####
+#stream: 0
+#####stream_ett: 15
+####
+#jumpstream: 1
+####jumpstream_ett: 27
+####
+#handstream: 1
+#####handstream_ett: 15
+####
+#jackspeed: 0
+#####jackspeed_ett: 14
+####
+technical: 1
+##technical_ett: 22
+#
+ln: 0
+##
+rc: 1
+##
+hb: 0
+##
+ln_ratio: 0
+

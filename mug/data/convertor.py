@@ -80,19 +80,24 @@ def parse_osu_file(osu_path, convertor_params: Optional[dict]) -> Tuple[List[str
     return hit_objects, meta
 
 
-def save_osu_file(meta: BeatmapMeta, note_array: np.ndarray, path=None, override=None):
+def save_osu_file(meta: BeatmapMeta, note_array: np.ndarray, path=None, override=None,
+                  gridify=None):
     convertor = meta.convertor
     hit_objects = convertor.array_to_objects(note_array, meta)
     with open(path, "w", encoding='utf8') as f:
         for line in meta.file_meta:
             if override is not None:
                 for k, v in override.items():
-                    if line.startswith(k):
+                    if line.startswith(k + ":"):
                         line = f"{k}: {v}"
                         break
             f.write(line + "\n")
 
+        if gridify is not None:
+            bpm, offset = gridify(hit_objects)
+            f.write(f"[TimingPoints]\n{offset},{60000 / bpm},4,2,1,20,1,0\n\n")
         f.write("[HitObjects]\n")
+
         for hit_object in hit_objects:
             f.write(hit_object + "\n")
 
