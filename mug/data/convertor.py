@@ -84,6 +84,13 @@ def save_osu_file(meta: BeatmapMeta, note_array: np.ndarray, path=None, override
                   gridify=None):
     convertor = meta.convertor
     hit_objects = convertor.array_to_objects(note_array, meta)
+    try:
+        bpm, offset = gridify(hit_objects)
+    except:
+        import traceback
+        traceback.print_exc()
+        return
+
     with open(path, "w", encoding='utf8') as f:
         for line in meta.file_meta:
             if override is not None:
@@ -94,7 +101,6 @@ def save_osu_file(meta: BeatmapMeta, note_array: np.ndarray, path=None, override
             f.write(line + "\n")
 
         if gridify is not None:
-            bpm, offset = gridify(hit_objects)
             f.write(f"[TimingPoints]\n{offset},{60000 / bpm},4,2,1,20,1,0\n\n")
         f.write("[HitObjects]\n")
 
