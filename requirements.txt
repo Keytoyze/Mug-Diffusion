@@ -1,0 +1,14 @@
+numpy
+pillow
+pyyaml
+omegaconf
+tqdm
+einops
+scipy
+librosa
+audioread
+soundfile
+matplotlib
+packaging
+eyed3
+requests

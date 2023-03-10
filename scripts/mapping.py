@@ -1,4 +1,5 @@
 import argparse, os, sys, glob
+sys.path.append(".")
 
 import numba
 import torch
@@ -41,7 +42,7 @@ def load_model_from_config(config, ckpt, verbose=False):
 
 
 def parse_feature(batch_size, feature_dict, feature_yaml, model: DDPM):
-    diff = [4, 5, 6, 7]
+    diff = [3.5, 4, 4, 4.5]
     features = []
     for i in range(batch_size):
         cur_dict = feature_dict.copy()
@@ -57,6 +58,8 @@ def gridify_potassium(hit_objects):
     for line in hit_objects:
         time = int(line.split(",")[2])
         time_list.append(time)
+    if len(hit_objects) == 0:
+        return
     start_time, end_time = time_list[0], time_list[-1]
 
     def filter_time(l):
@@ -385,6 +388,7 @@ if __name__ == "__main__":
             ], axis=1)
         elif t > dataset.max_audio_frame:
             audio = audio[:, :dataset.max_audio_frame]
+        # print(opt.n_samples)
         w = torch.tensor(
             np.stack([audio for _ in range(opt.n_samples)]),
                        dtype=torch.float32).to(model.device)
