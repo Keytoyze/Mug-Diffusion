@@ -172,6 +172,7 @@ class OsuDataset(Dataset):
             "jackspeed": int(max_score - result_minacalc['jackspeed'] <= 1),
             "chordjack": int(max_score - result_minacalc['chordjack'] <= 1),
             "technical": int(max_score - result_minacalc['technical'] <= 1),
+            "stamina": int(max_score - result_minacalc['stamina'] <= 1),
         })
 
         # dropout feature

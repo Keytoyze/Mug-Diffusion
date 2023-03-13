@@ -211,10 +211,11 @@ def ensure_column(conn: sqlite3.Connection, table_name: str,
 def prepare_features(beatmap_txt, features_yaml, osu_tools, ranked_map_path):
     features_yaml = yaml.safe_load(open(features_yaml))
     ranked_maps = {}
-    with open(ranked_map_path) as f:
-        for line in f:
-            set_id, status = line.strip().split(" ")
-            ranked_maps[int(set_id)] = status
+    if ranked_map_path is not None:
+        with open(ranked_map_path) as f:
+            for line in f:
+                set_id, status = line.strip().split(" ")
+                ranked_maps[int(set_id)] = status
 
     conn = sqlite3.connect(os.path.join(os.path.dirname(beatmap_txt), 'feature.db'))
     type_map = {
@@ -310,7 +311,8 @@ if __name__ == '__main__':
     parser.add_argument('--osu_tools',
                         type=str)
     parser.add_argument('--ranked_map_path',
-                        type=str)
+                        type=str,
+                        default=None)
 
     opt, _ = parser.parse_known_args()
 
