@@ -45,8 +45,14 @@ class OsuDataset(Dataset):
                  cache_dir=None
                  ):
         self.data_paths = txt_file
-        with open(self.data_paths, "r", encoding='utf-8') as f:
-            self.beatmap_paths = f.read().splitlines()
+        if isinstance(txt_file, str):
+            txt_file_paths = [txt_file]
+        else:
+            txt_file_paths = txt_file
+        self.beatmap_paths = []
+        for p in txt_file_paths:
+            with open(p, "r", encoding='utf-8') as f:
+                self.beatmap_paths.extend(f.read().splitlines())
         self.beatmap_paths = sorted(self.beatmap_paths, key=lambda x: int(hashlib.md5(x.encode('utf-8')).hexdigest(), 16))
         self.beatmap_paths = self.filter_beatmap_paths(self.beatmap_paths)
 
@@ -98,7 +104,7 @@ class OsuDataset(Dataset):
         name = os.path.basename(path)
         set_name = os.path.basename(os.path.dirname(path))
         feature_conn = sqlite3.Connection(os.path.join(
-            os.path.dirname(self.data_paths),
+            os.path.dirname(os.path.dirname(path)),
             "feature.db"
         ))
         cursor = feature_conn.execute("SELECT * FROM Feature WHERE name = ? AND set_name = ?",
@@ -117,7 +123,7 @@ class OsuDataset(Dataset):
                 continue
             try:
                 params = line.split(",")
-                start = int(params[2])
+                start = int(float(params[2]))
                 if start >= max_note_time:
                     continue
                 column = int(int(float(params[0])) / int(512 / 4))
@@ -125,6 +131,7 @@ class OsuDataset(Dataset):
                 notes.append((start, column))
             except:
                 pass
+        notes = sorted(notes, key=lambda x: x[0])
         result_minacalc = minacalc.calc_skill_set(rate, notes)
         keys = [
             "overall",
@@ -172,6 +179,7 @@ class OsuDataset(Dataset):
             "jackspeed": int(max_score - result_minacalc['jackspeed'] <= 1),
             "chordjack": int(max_score - result_minacalc['chordjack'] <= 1),
             "technical": int(max_score - result_minacalc['technical'] <= 1),
+            "stamina": int(max_score - result_minacalc['stamina'] <= 1),
         })
 
         # dropout feature

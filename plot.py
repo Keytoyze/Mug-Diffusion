@@ -18,7 +18,7 @@ def process(name, index, monitor='val/loss'):
         for l in fcsv:
             if head is None:
                 head = l
-                print(head)
+                # print(head)
                 i = head.index(index)
                 monitor_i = head.index(monitor)
                 # i = head.index("train/loss_epoch")
@@ -65,7 +65,12 @@ files = [
     "logs/2023-02-21T22-30-55_mug_diffusion/testtube/version_0/metrics.csv",
     "logs/2023-02-22T16-02-43_mug_diffusion/testtube/version_0/metrics.csv",
     "logs/2023-02-24T17-14-56_mug_diffusion/testtube/version_0/metrics.csv",
-    "logs/2023-02-26T15-55-17_mug_diffusion/testtube/version_0/metrics.csv"
+    "logs/2023-02-26T15-55-17_mug_diffusion/testtube/version_0/metrics.csv",
+    "logs/2023-03-13T18-06-59_mug_diffusion/testtube/version_0/metrics.csv",
+    "logs/2023-03-13T23-11-26_mug_diffusion/testtube/version_0/metrics.csv",
+    "logs/2023-03-14T23-45-51_mug_diffusion/testtube/version_0/metrics.csv",
+    "logs/2023-03-15T15-13-00_mug_diffusion/testtube/version_0/metrics.csv",
+    "logs/2023-03-15T17-37-56_mug_diffusion/testtube/version_0/metrics.csv"
 ]
 
 

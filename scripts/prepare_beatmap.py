@@ -2,6 +2,8 @@ import shutil
 import string
 
 from tqdm import tqdm
+import sys
+sys.path.append(".")
 
 from mug.data.convertor import *
 
@@ -9,7 +11,8 @@ valid_chars = "-_.()[]' %s%s" % (string.ascii_letters, string.digits)
 
 
 def slugify(text):
-    return "".join(c for c in text if c in valid_chars)
+    # return "".join(c for c in text if c in valid_chars)
+    return text
 
 def safe_copy(src_file, dest_dir):
     os.makedirs(dest_dir, exist_ok=True)
@@ -51,7 +54,7 @@ def prepare_local_beatmaps(song_dir, mode_int, out_dir, cs):
                                     break
                     except:
                         pass
-                    if hit_mode and hit_cs:
+                    if hit_mode and hit_cs and os.path.isfile(audio_name):
                         # set_name = set_name.replace("&", "")
                         # file_name = file_name.replace("&", "")
                         new_dir = os.path.join(out_dir, slugify(set_name))

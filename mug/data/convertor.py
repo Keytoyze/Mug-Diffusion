@@ -89,7 +89,8 @@ def save_osu_file(meta: BeatmapMeta, note_array: np.ndarray, path=None, override
     except:
         import traceback
         traceback.print_exc()
-        return
+        bpm = 120
+        offset = 0
 
     with open(path, "w", encoding='utf8') as f:
         for line in meta.file_meta:

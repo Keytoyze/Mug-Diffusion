@@ -45,9 +45,9 @@ def execute_many(conn: sqlite3.Connection, sql: str, seq_of_parameters: list = N
     conn.executemany(sql, seq_of_parameters)
 
 
-def invoke_osu_tools(beatmap_path, osu_tools):
+def invoke_osu_tools(beatmap_path, osu_tools, dotnet_path='dotnet'):
     cmd = [
-        'dotnet',
+        dotnet_path,
         osu_tools
     ]
     cmd.extend(["difficulty", beatmap_path, "-j"])
@@ -82,11 +82,11 @@ def insert_or_replace(conn: sqlite3.Connection, table_name: str, contents: list,
     execute_many(conn, sql, seq_of_params)
 
 
-def get_star(path, osu_tools, update_dict):
+def get_star(path, osu_tools, update_dict, dotnet_path):
     sr_old = update_dict.get("sr", None)
     if sr_old is not None:
         return False
-    sr = invoke_osu_tools(path, osu_tools)
+    sr = invoke_osu_tools(path, osu_tools, dotnet_path)
     update_dict['sr'] = sr
     return True
 
@@ -116,13 +116,14 @@ def get_ett_scores(path, update_dict):
             continue
         try:
             params = line.split(",")
-            start = int(params[2])
+            start = int(float(params[2]))
             column = int(int(float(params[0])) / int(512 / 4))
             assert column <= 3
             notes.append((start, column))
         except:
             pass
 
+    notes = sorted(notes, key=lambda x: x[0])
     result = minacalc.calc_skill_set(1.0, notes)
     keys = [
         "overall",
@@ -155,6 +156,7 @@ def get_ett_scores(path, update_dict):
         "jackspeed": int(max_score - result['jackspeed'] <= 1),
         "chordjack": int(max_score - result['chordjack'] <= 1),
         "technical": int(max_score - result['technical'] <= 1),
+        "stamina": int(max_score - result['technical'] <= 1),
     })
 
 def get_ln_ratio(path, update_dict):
@@ -208,13 +210,14 @@ def ensure_column(conn: sqlite3.Connection, table_name: str,
                 ))
             execute_sql(conn, statement)
 
-def prepare_features(beatmap_txt, features_yaml, osu_tools, ranked_map_path):
+def prepare_features(beatmap_txt, features_yaml, osu_tools, ranked_map_path, dotnet_path):
     features_yaml = yaml.safe_load(open(features_yaml))
     ranked_maps = {}
-    with open(ranked_map_path) as f:
-        for line in f:
-            set_id, status = line.strip().split(" ")
-            ranked_maps[int(set_id)] = status
+    if ranked_map_path is not None:
+        with open(ranked_map_path) as f:
+            for line in f:
+                set_id, status = line.strip().split(" ")
+                ranked_maps[int(set_id)] = status
 
     conn = sqlite3.connect(os.path.join(os.path.dirname(beatmap_txt), 'feature.db'))
     type_map = {
@@ -262,7 +265,7 @@ def prepare_features(beatmap_txt, features_yaml, osu_tools, ranked_map_path):
             if row is not None:
                 update_dict.update(dict(zip(columns, row)))
 
-            update = get_star(path, osu_tools, update_dict) or update
+            update = get_star(path, osu_tools, update_dict, dotnet_path) or update
             update = get_ln_ratio(path, update_dict) or update
             update = get_rank_status(path, update_dict, ranked_maps) or update
             update = get_ett_scores(path, update_dict) or update
@@ -311,7 +314,11 @@ if __name__ == '__main__':
                         type=str)
     parser.add_argument('--ranked_map_path',
                         type=str)
+    parser.add_argument('--dotnet_path',
+                        type=str, 
+                        default='dotnet')
 
     opt, _ = parser.parse_known_args()
 
-    prepare_features(opt.beatmap_txt, opt.features_yaml, opt.osu_tools, opt.ranked_map_path)
+    prepare_features(opt.beatmap_txt, opt.features_yaml, opt.osu_tools, opt.ranked_map_path, 
+                     opt.dotnet_path)

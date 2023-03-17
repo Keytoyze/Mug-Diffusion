@@ -39,6 +39,34 @@ class TimestepBlock(nn.Module):
         Apply the module to `x` given `emb` timestep embeddings.
         """
 
+class RearrangeLayer(nn.Module):
+    def __init__(self, pattern):
+        self.pattern = pattern
+    def forward(self, x):
+        return einops.rearrange(x, self.pattern),
+
+class LSTMLayer(nn.Module):
+    def __init__(self, model_channels, num_layers=1) -> None:
+        super().__init__()
+
+        self.norm = Normalize(model_channels)
+        self.activate = nn.SiLU()
+        self.lstm = zero_module(torch.nn.LSTM(
+            input_size=model_channels,
+            hidden_size=model_channels,
+            batch_first=True,
+            num_layers=num_layers
+        ))
+    
+    def forward(self, x):
+        input = x
+        x = self.norm(x)
+        x = self.activate(x)
+        x = einops.rearrange(x, "b c t -> b t c")
+        x = self.lstm(x)[0]
+        x = einops.rearrange(x, "b t c -> b c t")
+        # print(x)
+        return input + x
 
 class TimestepEmbedSequential(nn.Sequential, TimestepBlock):
     """
@@ -250,6 +278,7 @@ class UNetModel(nn.Module):
             num_head_channels=-1,
             use_scale_shift_norm=False,
             lstm_last=False,
+            lstm_layer=False,
             transformer_depth=1,  # custom transformer support
             context_dim=None,  # custom transformer support
     ):
@@ -300,7 +329,7 @@ class UNetModel(nn.Module):
         for level, mult in enumerate(channel_mult):
             self.input_blocks.append(AudioConcatBlock())
             ch += audio_channels[level]
-            for _ in range(num_res_blocks):
+            for level_res in range(num_res_blocks):
                 layers = [
                     TimestepResBlock(
                         ch,
@@ -324,6 +353,12 @@ class UNetModel(nn.Module):
                             ch, num_heads, dim_head, depth=transformer_depth,
                             context_dim=context_dim, checkpoint=use_checkpoint,
                             dropout=dropout
+                        )
+                    )
+                if lstm_layer and level_res == 0:
+                    layers.append(
+                        LSTMLayer(
+                            model_channels=ch
                         )
                     )
                 self.input_blocks.append(TimestepEmbedSequential(*layers))
@@ -400,6 +435,12 @@ class UNetModel(nn.Module):
                             ch, num_heads, dim_head, depth=transformer_depth,
                             context_dim=context_dim, checkpoint=use_checkpoint,
                             dropout=dropout
+                        )
+                    )
+                if lstm_layer and i == 0:
+                    layers.append(
+                        LSTMLayer(
+                            model_channels=ch
                         )
                     )
                 if level and i == num_res_blocks:
@@ -483,13 +524,13 @@ class UNetModel(nn.Module):
         h = h.type(x.dtype)
         h = self.out(h)
 
-        if self.lstm_last:
-            h1 = einops.rearrange(h, "b c t -> b t c")
-            h1 = self.lstm(h1)[0]
-            h1 = einops.rearrange(h1, "b t c -> b c t")
-            h1 = self.lstm_out(h1)
-            h2 = h + h1
-            return h2
+        # if self.lstm_last:
+        #     h1 = einops.rearrange(h, "b c t -> b t c")
+        #     h1 = self.lstm(h1)[0]
+        #     h1 = einops.rearrange(h1, "b t c -> b c t")
+        #     h1 = self.lstm_out(h1)
+        #     h2 = h + h1
+        #     return h2
         return h
 
     def summary(self):
@@ -516,4 +557,4 @@ if __name__ == '__main__':
               num_res_blocks=2, attention_resolutions=[8, 4, 2],
               channel_mult=[1, 2, 3, 4], num_heads=8,
               context_dim=128, audio_channels=[256, 256, 512, 512],
-              lstm_last=True).summary()
+              lstm_last=True, lstm_layer=True).summary()
