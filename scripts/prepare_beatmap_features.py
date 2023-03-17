@@ -313,7 +313,8 @@ if __name__ == '__main__':
     parser.add_argument('--osu_tools',
                         type=str)
     parser.add_argument('--ranked_map_path',
-                        type=str)
+                        type=str,
+                        default=None)
     parser.add_argument('--dotnet_path',
                         type=str, 
                         default='dotnet')

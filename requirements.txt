@@ -12,3 +12,4 @@ matplotlib
 packaging
 eyed3
 requests
+pytorch_lightning

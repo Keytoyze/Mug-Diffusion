@@ -345,6 +345,8 @@ if __name__ == "__main__":
 
     if opt.prompt_path is not None:
         feature_dict = yaml.safe_load(open(opt.prompt_path))
+        if feature_dict is None:
+            feature_dict = {}
     else:
         feature_dict = {}
 

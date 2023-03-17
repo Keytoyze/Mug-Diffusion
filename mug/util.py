@@ -131,7 +131,11 @@ def load_audio_wave(sr, max_duration, audio_path, fallback_load_method=None):
         return load_audio_wave(sr, max_duration, audio_path, fallback_load_method[1:])
 
 def load_audio_without_cache(audio_path, n_mels, audio_hop_length, n_fft, sr, max_duration):
-    y, sr = load_audio_wave(sr, max_duration, audio_path, [audioread.ffdec.FFmpegAudioFile])
+    y, sr = load_audio_wave(sr, max_duration, audio_path, [audioread.ffdec.FFmpegAudioFile,
+                                                           soundfile.SoundFile,
+                                              lambda x: x,
+                                              #   soundfile.SoundFile
+                                              ])
     y = librosa.feature.melspectrogram(y=y, sr=sr,
                                        n_mels=n_mels,
                                        hop_length=audio_hop_length,
