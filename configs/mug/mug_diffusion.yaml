@@ -11,7 +11,7 @@ model:
     z_length: 512
     parameterization: eps
     loss_type: l1
-    ckpt_path: logs/2023-03-15T15-13-00_mug_diffusion/checkpoints/epoch=000004.ckpt
+    ckpt_path: logs/2023-03-15T17-37-56_mug_diffusion/checkpoints/epoch=000283.ckpt
     # ignore_keys: [ 'model.first_stage_model' ]
     # ignore_keys: [ 'model.cond_stage_model' ]
     monitor: val/loss_simple
@@ -98,6 +98,7 @@ data:
         "data/beatmap_4k/beatmap.txt",
         "data/etterna_offset/beatmap.txt",
         "data/malody/beatmap.txt",
+        "data/rankable/beatmap.txt",
       ]
       sr: 22050
       n_fft: 512

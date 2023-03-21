@@ -120,7 +120,7 @@ def load_dict_from_batch(dict_data, i):
 def load_audio_wave(sr, max_duration, audio_path, fallback_load_method=None):
 
     if len(fallback_load_method) == 0:
-        raise ValueError(f"Cannot load: {audio_path}")
+        raise ValueError(f"Cannot load: {audio_path}, {os.path.exists(audio_path)}")
     try:
         audio = fallback_load_method[0](audio_path)
         y, sr = librosa.load(audio, sr=sr, duration=max_duration)
@@ -132,10 +132,9 @@ def load_audio_wave(sr, max_duration, audio_path, fallback_load_method=None):
 
 def load_audio_without_cache(audio_path, n_mels, audio_hop_length, n_fft, sr, max_duration):
     y, sr = load_audio_wave(sr, max_duration, audio_path, [audioread.ffdec.FFmpegAudioFile,
-                                                           soundfile.SoundFile,
-                                              lambda x: x,
-                                              #   soundfile.SoundFile
-                                              ])
+                                                           soundfile.SoundFile, 
+                                                           lambda x: x
+                                                          ])
     y = librosa.feature.melspectrogram(y=y, sr=sr,
                                        n_mels=n_mels,
                                        hop_length=audio_hop_length,

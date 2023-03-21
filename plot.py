@@ -13,6 +13,7 @@ def process(name, index, monitor='val/loss'):
         fcsv = csv.reader(f)
         head = None
         content = []
+        step = []
 
         val_loss = []
         for l in fcsv:
@@ -28,8 +29,10 @@ def process(name, index, monitor='val/loss'):
                 if l[i] != "" and l[i] != "nan" and l[monitor_i] != 'nan':
                     # val_loss.append(float(l[7]))
                     val_loss.append(float(l[i]))
+                    step.append(float(l[1]))
     val_loss = np.asarray(val_loss)
-    return val_loss
+    step = np.asarray(step)
+    return val_loss, step
 
 # s1 = process("logs/2022-12-15T12-11-46_mug_diffusion/testtube/version_0/metrics.csv")
 # s2 = process("logs/2022-12-15T22-00-15_mug_diffusion/testtube/version_0/metrics.csv")
@@ -56,8 +59,8 @@ files = [
     # "/var/chenmouxiang/mug-diffusion/logs/2023-01-10T11-40-10_mug_diffusion/testtube/version_0/metrics.csv",
     # "/var/chenmouxiang/mug-diffusion/logs/2023-01-11T16-06-03_mug_diffusion/testtube/version_0/metrics.csv",
     # "/var/chenmouxiang/mug-diffusion/logs/2023-01-14T01-53-07_mug_diffusion/testtube/version_0/metrics.csv",
-    "logs/2023-01-14T13-17-38_mug_diffusion/testtube/version_0/metrics.csv",
-    "logs/2023-02-18T01-42-12_mug_diffusion/testtube/version_0/metrics.csv",
+    # "logs/2023-01-14T13-17-38_mug_diffusion/testtube/version_0/metrics.csv",
+    # "logs/2023-02-18T01-42-12_mug_diffusion/testtube/version_0/metrics.csv",
     "logs/2023-02-18T14-44-56_mug_diffusion/testtube/version_0/metrics.csv",
     "logs/2023-02-18T15-38-29_mug_diffusion/testtube/version_0/metrics.csv",
     "logs/2023-02-18T18-45-54_mug_diffusion/testtube/version_0/metrics.csv",
@@ -70,7 +73,8 @@ files = [
     "logs/2023-03-13T23-11-26_mug_diffusion/testtube/version_0/metrics.csv",
     "logs/2023-03-14T23-45-51_mug_diffusion/testtube/version_0/metrics.csv",
     "logs/2023-03-15T15-13-00_mug_diffusion/testtube/version_0/metrics.csv",
-    "logs/2023-03-15T17-37-56_mug_diffusion/testtube/version_0/metrics.csv"
+    "logs/2023-03-15T17-37-56_mug_diffusion/testtube/version_0/metrics.csv",
+    "logs/2023-03-19T23-19-39_mug_diffusion/testtube/version_0/metrics.csv"
 ]
 
 
@@ -88,8 +92,20 @@ files = [
 # plt.plot(x, y, label='val/recall_rice')
 
 for monitor in args.params:
-    y = np.concatenate(list(map(lambda x: process(x, monitor), files)))
-    x = np.asarray(range(len(y)))
+    losses = []
+    steps = []
+    for x in files:
+        loss, step = process(x, monitor)
+        losses.append(loss)
+        if len(steps) == 0:
+            steps.append(step)
+        else:
+            step += steps[-1][-1]
+            steps.append(step)
+    # y = np.concatenate(list(map(lambda x: process(x, monitor), files)))
+    # x = np.asarray(range(len(y)))
+    y = np.concatenate(losses)
+    x = np.concatenate(steps)
     plt.plot(x, y, label=monitor)
     print(y)
 plt.grid()

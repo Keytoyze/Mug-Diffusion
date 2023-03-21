@@ -50,15 +50,22 @@ def parse_osu_file(osu_path, convertor_params: Optional[dict]) -> Tuple[List[str
 
             if parsing_context == "[General]":
                 if line.startswith("AudioFilename"):
+                    audio_item = read_item(line)
                     meta.audio = os.path.join(os.path.dirname(osu_path),
-                                              read_item(line))
+                                              audio_item)
                     if not os.path.isfile(meta.audio):
-                        meta.audio = slugify(meta.audio)
+                        meta.audio = os.path.join(os.path.dirname(osu_path),
+                                                  slugify(audio_item))
                         if not os.path.isfile(meta.audio):
                             meta.audio = os.path.join(
                                 os.path.dirname(meta.audio),
-                                os.path.basename(meta.audio).lower()
+                                audio_item.lower()
                             )
+                            if not os.path.isfile(meta.audio):
+                                meta.audio = os.path.join(
+                                    os.path.dirname(meta.audio),
+                                    slugify(audio_item.lower())
+                                )
                 elif line.startswith("Mode"):
                     meta.game_mode = int(read_item(line))
                     if convertor_params is not None:

@@ -13,11 +13,14 @@ dirs = [
     # "logs/2023-02-22T16-02-43_mug_diffusion/",
     # "logs/2023-02-24T17-14-56_mug_diffusion/",
     # "logs/2023-02-26T15-55-17_mug_diffusion/",
-    "logs/2023-03-13T18-06-59_mug_diffusion/",
-    "logs/2023-03-13T23-11-26_mug_diffusion/",
-    "logs/2023-03-14T23-45-51_mug_diffusion",
-    "logs/2023-03-15T15-13-00_mug_diffusion",
-    "logs/2023-03-15T17-37-56_mug_diffusion"
+
+    # "logs/2023-03-13T18-06-59_mug_diffusion/",
+    # "logs/2023-03-13T23-11-26_mug_diffusion/",
+    # "logs/2023-03-14T23-45-51_mug_diffusion",
+    # "logs/2023-03-15T15-13-00_mug_diffusion",
+    # "logs/2023-03-15T17-37-56_mug_diffusion",
+
+    "logs/2023-03-19T23-19-39_mug_diffusion"
 ]
 
 def jack_speed_count(osu_path):
@@ -54,13 +57,7 @@ for p in dirs:
         ai_count = 0
         for set_name in os.listdir(path):
             set_path = os.path.join(path, set_name)
-            # if "SaltedFISSH" in set_path or "[Einar]" in set_path or "Impossible Pack" in set_path or "Lolipusher" in set_path:
-            #     continue
-            if "Icy" not in set_path:
-                continue
             for osu_name in os.listdir(set_path):
-                # if "Danshi" not in osu_name and "Scarhand" not in osu_name:
-                #     continue
                 if osu_name.endswith("_step=0.osu"):
                     osu_path = os.path.join(set_path, osu_name)
                     ai_count += jack_speed_count(osu_path)
