@@ -12,16 +12,16 @@ pip install -r requirements.txt
 
 ## Mapping
 
-- Download ckpt file, and put it in `models/ckpt/model.ckpt`.
+- Download ckpt file, and put it in `models/ckpt/model.ckpt` and `models/ckpt/model.yaml`.
 - Modify prompt yaml files in `configs/mapping_config/feature_*.yaml`
-- Mapping:
+- Start mapping:
 
 ```commandline
 python scripts/mapping.py
-    --audio <path_to_audio_file>
+    --audio path/to/audio/file
     --prompt_dir configs/mapping_config/
-    --audio_title <title>
-    --audio_artist <artist>
+    --audio_title "Title"
+    --audio_artist "Artist"
     --n_samples 4
 ```
 
