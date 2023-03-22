@@ -506,7 +506,7 @@ if __name__ == "__main__":
             save_osu_file(beatmap_meta, x_sample,
                           path=os.path.join(save_dir, file_name),
                           override={
-                              "Creator": creator,
+                              "Creator": f"{creator} v{config.version}",
                               "Version": version,
                               "AudioFilename": "audio.mp3",
                               "Title": audio_title,
