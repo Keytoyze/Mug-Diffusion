@@ -384,6 +384,12 @@ if __name__ == "__main__":
     )
 
     parser.add_argument(
+        "--no_adsorption",
+        action='store_true',
+        help="don't adsorpt the notes to grids",
+    )
+
+    parser.add_argument(
         "--ddim_eta",
         type=float,
         default=0.0,
@@ -492,7 +498,10 @@ if __name__ == "__main__":
                     estimate_offset = opt.offset
             else:
                 estimate_bpm, estimate_offset = opt.bpm, opt.offset
-            return estimate_bpm, estimate_offset, new_hit_objects
+            if opt.no_adsorption:
+                return estimate_bpm, estimate_offset, hit_objects
+            else:
+                return estimate_bpm, estimate_offset, new_hit_objects
 
         for i, x_sample in enumerate(x_samples_ddim):
             convertor_params = convertor_params.copy()
