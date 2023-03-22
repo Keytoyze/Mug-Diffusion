@@ -41,12 +41,11 @@ def load_model_from_config(config, ckpt, verbose=False):
     return model
 
 
-def parse_feature(batch_size, feature_dict, feature_yaml, model: DDPM):
-    diff = [3.5, 4, 4, 4.5]
+def parse_feature(batch_size, feature_dicts, feature_yaml, model: DDPM):
     features = []
     for i in range(batch_size):
-        cur_dict = feature_dict.copy()
-        cur_dict['sr'] = diff[i % len(diff)]
+        cur_dict = feature_dicts[i] if i < len(feature_dicts) else {}
+        print(f"Feature {i}: {cur_dict}")
         features.append(feature_dict_to_embedding_ids(cur_dict, feature_yaml))
     feature = torch.tensor(np.asarray(features), dtype=torch.float32,
                            device=model.device)
@@ -158,7 +157,7 @@ def gridify_potassium(hit_objects):
         return offset
 
     offset = start_time
-    for cur_precision in [1, 5, 10]:
+    for cur_precision in [10]:
         cur_bpm = get_bpm(cur_precision, offset)
         offset = get_offset(cur_bpm, offset)
         print(f"[{cur_precision}] bpm: {cur_bpm}, offset: {offset}")
@@ -167,79 +166,149 @@ def gridify_potassium(hit_objects):
     return cur_bpm, offset
 
 def gridify(hit_objects):
-
-    if len(hit_objects) <= 2:
-        return 120, 0
-
-    interval_to_list = {}
-    last_start = None
-    epsilon = 3
-
+    fraction = 4
+    time_list = []
     for line in hit_objects:
-        start = int(float(line.split(",")[2]))
-        if last_start is not None:
-            cur_interval = start - last_start
-            if cur_interval < epsilon:
+        time = int(line.split(",")[2])
+        time_list.append(time)
+    if len(hit_objects) == 0:
+        return
+    start_time, end_time = time_list[0], time_list[-1]
+
+    def filter_time(l):
+        # <10ms 的 notes 视作一个，值取平均，保存数量
+        epsilon = 10
+        assert len(l) > 1
+
+        l.append(2e9)
+        result_idx = [0]
+        for idx in range(1, len(l)):
+            if l[idx] - l[result_idx[-1]] < epsilon:
                 continue
-            flag = True
-            for i in interval_to_list:
-                if abs(i - cur_interval) < epsilon:
-                    interval_to_list[i].append(cur_interval)
-                    flag = False
-                    break
-            if flag:
-                interval_to_list[cur_interval] = [cur_interval]
-        last_start = start
+            result_idx.append(idx)
+        res = []
+        for idx in range(0, len(result_idx) - 1):
+            num = result_idx[idx + 1] - result_idx[idx]
+            avg = sum(l[result_idx[idx]:result_idx[idx + 1]]) / num
+            res.append((avg, num))
+        return res
 
-    max_count = -1
-    interval_mode = -1
-    for i in interval_to_list:
-        if len(interval_to_list[i]) > max_count:
-            interval_mode = sum(interval_to_list[i]) / len(interval_to_list[i])
-            max_count = len(interval_to_list[i])
+    # list of (avg_timestamp, num)
+    der_list = filter_time(time_list)
 
-    intervals = []
-    for i in interval_to_list:
-        cur_mean = sum(interval_to_list[i]) / len(interval_to_list[i])
-        for ratio in [1 / 8, 1 / 6, 1 / 4, 1 / 3, 1 / 2, 1, 2, 3, 4, 6, 8]:
-            cur_mean_scale = cur_mean * ratio
-            if abs(cur_mean_scale - interval_mode) < epsilon:
-                intervals.extend([x * ratio for x in interval_to_list[i]])
-    interval_mode = sum(intervals) / len(intervals)
+    # 根据 offset 找 bpm，目的是让大部分都对齐在 1/12 线上
+    def get_bpm(precision, offset):
+        result_bpm = -1
+        result_loss = 1e9
+        result_result = {}
+        for bpm in range(150 * precision, 300 * precision):
+            bpm /= precision
+            gap = 60 * 1000 / (fraction * bpm)
+            loss = 0
+            s, s2, notes = 0, 0, 0
+            for (avg_time, cnt) in der_list:
+                gap_time = avg_time - offset
+                shang = round(gap_time / gap)
+                delta = (gap_time - gap * shang)
 
-    bpm = 60000 / interval_mode
-    while bpm < 150:
-        bpm = bpm * 2
-    while bpm > 300:
-        bpm = bpm / 2
+                s += delta * cnt
+                s2 += delta * delta * cnt
+                notes += cnt
+                # loss += delta * delta
 
-    bpm = round(bpm, 1)
+            # sum delta^2/n
+            loss = (s2 - 2 * s * (s / notes) + (s * s / notes / notes)) / notes
 
-    bpm = 253.2
-    interval = 60000 / bpm / 4
-    offset_0 = None
-    offsets = []
-    for line in hit_objects:
-        start = int(float(line.split(",")[2]))
-        if len(offsets) == 0:
-            offsets.append(start)
+            loss /= gap
+
+            if loss < result_loss:
+                result_bpm = bpm
+                result_loss = loss
+            # if loss < 2:
+            #     result_result[bpm] = loss
+        print(result_loss)
+        return result_bpm
+
+    def get_offset(bpm, offset):
+        # step 1:
+        # 在这个 bpm 下，如何更改 offset 让尽可能多的音对在 1/1 1/2 1/4 线上？
+        #          1/1    1/6 1/4 1/3     1/2    2/3 3/4 1/6
+        if fraction == 12:
+            weights = [100, 0, 20, 50, 60, 0, 100, 0, 60, 50, 20, 0]
+        elif fraction == 4:
+            weights = [100, 100, 100, 100]
         else:
-            mean_offset = sum(offsets) / len(offsets)
-            n_interval = start - mean_offset
-            idea_interval = round(n_interval / interval) * interval
-            if abs(idea_interval - n_interval) < epsilon:
-                offsets.append(mean_offset + n_interval - idea_interval)
+            raise Exception("")
+        gap = 60 * 1000 / (fraction * bpm)
+        for precision_range in [range(-300, 300, 30), range(-30, 30, 5), range(-5, 5, 1)]:
+            def get_val(offset):
+                val = 0
+                for (avg_time, cnt) in der_list:
+                    gap_time = avg_time - offset
+                    shang = round(gap_time / gap)
+                    frac = shang % fraction
+                    val += weights[frac] * cnt
+                return val
 
-    offset = sum(offsets) / len(offsets)
+            best_offset = offset
+            best_val = get_val(offset)
+            for i in precision_range:
+                val = get_val(offset + i)
+                if val > best_val:
+                    best_val = val
+                    best_offset = offset + i
+            offset = best_offset
 
-    return bpm, offset
+        # step 2: 试试能否做到让对音尽量准确
+        s, tot = 0, 0
+        for (avg_time, cnt) in der_list:
+            gap_time = avg_time - offset
+            shang = round(gap_time / gap)
+            delta = (gap_time - gap * shang)
+            s += delta * cnt
+            tot += cnt
+        offset += s / tot
+        return offset
+
+    offset = start_time
+    for cur_precision in [10]:
+        cur_bpm = get_bpm(cur_precision, offset)
+        offset = get_offset(cur_bpm, offset)
+        print(f"[{cur_precision}] bpm: {cur_bpm}, offset: {offset}")
+    cur_gap = 60 * 1000 / cur_bpm
+
+    def attaching(t_start):
+        t = t_start - offset
+        base_offset = int(t / cur_gap) * cur_gap
+        note_offset = t - base_offset
+        for div in [1, 2, 3, 4, 6, 8, 12, 16]:
+            gap_div = cur_gap / div
+            gap_grid_time = round(note_offset / gap_div) * gap_div
+            gap_offset = abs(note_offset - gap_grid_time)
+            if gap_offset <= 10:
+                result = str(int(gap_grid_time + base_offset + offset))
+            if div == 16:
+                result = str(int(gap_grid_time + base_offset + offset))
+        return result
+
+    gridified_hit_objects = []
+    for line in hit_objects:
+        elements = line.split(",")
+        elements[2] = attaching(int(elements[2]))
+        if int(elements[3]) == 128:
+            e = elements[5].split(":")
+            e[0] = attaching(int(e[0]))
+            elements[5] = ":".join(e)
+        gridified_hit_objects.append(",".join(elements))
+
+    return cur_bpm, offset, gridified_hit_objects
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 
     parser.add_argument(
-        "--prompt_path",
+        "--prompt_dir",
         type=str,
         default=None,
         help="the prompt to render, in yaml config"
@@ -298,7 +367,7 @@ if __name__ == "__main__":
         type=str,
         nargs="?",
         help="dir to write results to",
-        default="outputs/txt2img-samples"
+        default="outputs/beatmaps"
     )
 
     parser.add_argument(
@@ -331,7 +400,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--scale",
         type=float,
-        default=5.0,
+        default=1.0,
         help="unconditional guidance scale: eps = eps(x, empty) + scale * (eps(x, cond) - eps(x, empty))",
     )
     opt = parser.parse_args()
@@ -343,12 +412,12 @@ if __name__ == "__main__":
     config = OmegaConf.load("models/ckpt/model.yaml")  # TODO: Optionally download from same location as ckpt and chnage this logic
     model = load_model_from_config(config, "models/ckpt/model.ckpt")  # TODO: check path
 
-    if opt.prompt_path is not None:
-        feature_dict = yaml.safe_load(open(opt.prompt_path))
-        if feature_dict is None:
-            feature_dict = {}
+    if opt.prompt_dir is not None:
+        feature_dicts = []
+        for i in range(opt.n_samples):
+            feature_dicts.append(yaml.safe_load(open(os.path.join(opt.prompt_dir, f"feature_{i + 1}.yaml"))))
     else:
-        feature_dict = {}
+        feature_dicts = []
 
     feature_yaml = yaml.safe_load(open(opt.feature_yaml))
 
@@ -364,17 +433,13 @@ if __name__ == "__main__":
     os.makedirs(opt.outdir, exist_ok=True)
     outpath = opt.outdir
 
-    sample_path = os.path.join(outpath, "samples")
-    os.makedirs(sample_path, exist_ok=True)
-    base_count = len(os.listdir(sample_path))
-
     all_samples = list()
     with torch.no_grad():
         uc = None
         if opt.scale != 1.0:
             uc = parse_feature(opt.n_samples, {}, feature_yaml, model)
 
-        c = parse_feature(opt.n_samples, feature_dict, feature_yaml, model)
+        c = parse_feature(opt.n_samples, feature_dicts, feature_yaml, model)
         dataset = config.data.params.common_params
         audio_hop_length = dataset.n_fft // 4
         audio_frame_duration = audio_hop_length / dataset.sr
@@ -410,7 +475,7 @@ if __name__ == "__main__":
 
         template_path = opt.template_beatmap
         template_name = os.path.basename(template_path)
-        save_dir = opt.outdir
+        save_dir = os.path.join(opt.outdir, f"{audio_artist} - {audio_title}")
         os.makedirs(save_dir, exist_ok=True)
         convertor_params = {
             "frame_ms": audio_frame_duration * dataset.audio_note_window_ratio * 1000,
@@ -418,15 +483,16 @@ if __name__ == "__main__":
         }
 
         def custom_gridify(hit_objects):
+            new_hit_objects = hit_objects
             if opt.bpm is None or opt.offset is None:
-                estimate_bpm, estimate_offset = gridify_potassium(hit_objects)
+                estimate_bpm, estimate_offset, new_hit_objects = gridify(hit_objects)
                 if opt.bpm is not None:
                     estimate_bpm = opt.bpm
                 if opt.offset is not None:
                     estimate_offset = opt.offset
             else:
                 estimate_bpm, estimate_offset = opt.bpm, opt.offset
-            return estimate_bpm, estimate_offset
+            return estimate_bpm, estimate_offset, new_hit_objects
 
         for i, x_sample in enumerate(x_samples_ddim):
             convertor_params = convertor_params.copy()

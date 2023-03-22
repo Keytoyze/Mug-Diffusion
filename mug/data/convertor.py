@@ -92,7 +92,7 @@ def save_osu_file(meta: BeatmapMeta, note_array: np.ndarray, path=None, override
     convertor = meta.convertor
     hit_objects = convertor.array_to_objects(note_array, meta)
     try:
-        bpm, offset = gridify(hit_objects)
+        bpm, offset, hit_objects = gridify(hit_objects)
     except:
         import traceback
         traceback.print_exc()

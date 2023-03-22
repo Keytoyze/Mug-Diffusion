@@ -1,3 +1,4 @@
+import os.path
 import shutil
 import string
 
@@ -24,7 +25,17 @@ def safe_copy(src_file, dest_dir):
 
 
 def prepare_local_beatmaps(song_dir, mode_int, out_dir, cs):
-    set_names = os.listdir(song_dir)
+    raw_set_names = os.listdir(song_dir)
+    print(len(raw_set_names))
+    set_names = set()
+    for x in raw_set_names:
+        try:
+            p = os.path.getmtime(os.path.join(song_dir, x))
+            if p >= 1679127186:
+                set_names.add(x)
+        except:
+            pass
+    print(len(set_names))
     results = []
     for set_name in tqdm(set_names):
         try:

@@ -1,6 +1,9 @@
 .idea
-/data/
 logs
 __pycache__
 result.pdf
 .vscode
+!/data/template.osu
+/data/
+/outputs/
+/configs/mapping_config

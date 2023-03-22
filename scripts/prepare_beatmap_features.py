@@ -243,7 +243,7 @@ def prepare_features(beatmap_txt, features_yaml, osu_tools, ranked_map_path, dot
     stars = []
     ln_ratios = []
 
-    for line in tqdm(list(open(beatmap_txt))):
+    for line in tqdm(list(open(beatmap_txt, encoding='utf8'))):
         path = line.strip()
         if path == "":
             continue

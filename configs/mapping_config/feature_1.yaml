@@ -1,0 +1,44 @@
+# This file records the prompt configuration.
+# Please refer to configs/mug/mania_beatmap_features.yaml to see type and range of each item.
+# An ommited item lets AI decide freely which one should be the best for music.
+
+rank_status: ranked
+
+# ============== difficulty part start ==============
+sr: 3 # om's star rating system
+#ett: 20 # etterna's minacalc rating system
+# ============== difficulty part end ==============
+
+# The following values controls the pattern, based on etterna's minacalc.
+# If ends with "_ett", it should be between [5, 35], same to mina scores for each pattern.
+# Otherwise, it should be 0/1, meaning if this pattern has the highest score among all patterns.
+
+# ============== pattern part start ==============
+chordjack: 0
+#chordjack_ett: 12
+stamina: 1
+#stamin_ett: 23
+stream: 0
+#stream_ett: 15
+jumpstream: 1
+#jumpstream_ett: 18
+handstream: 1
+#handstream_ett: 18
+jackspeed: 0
+#jackspeed_ett: 10
+technical: 0
+#technical_ett: 16
+# ============== pattern part end ==============
+
+# The following values controls the amount of LNs.
+# ln_ratio is between [0, 1]. 1 means full LN.
+# If ln = 1, then ln_ratio >= 0.4
+# If rc = 1, then ln_ratio < 0.1
+# If hb = 1, then 0.1 <= ln_ratio <= 0.7
+
+# ============== LN part start ==============
+ln: 0
+rc: 1
+hb: 0
+ln_ratio: 0
+# ============== LN part end ==============
