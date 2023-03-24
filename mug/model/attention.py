@@ -82,7 +82,7 @@ class CrossAttention(nn.Module):
         self.to_v = nn.Linear(context_dim, inner_dim, bias=False)
         self.relative_position_embedding = nn.Parameter(torch.zeros(position_max_embedding * 2 + 1,
                                                                     heads))
-
+        self.C_embedding = nn.Parameter(torch.ones(position_max_embedding * 2 + 1, heads))
         self.to_out = nn.Sequential(
             nn.Linear(inner_dim, query_dim),
             nn.Dropout(dropout)
@@ -98,14 +98,18 @@ class CrossAttention(nn.Module):
         v = self.to_v(context)
 
         q, k, v = map(lambda t: rearrange(t, 'b n (h d) -> (b h) n d', h=h), (q, k, v))
-        position_matrix = (
+        position_matrix_index = (
             torch.arange(k.shape[1], device=x.device).reshape(1, -1) - 
             torch.arange(q.shape[1], device=x.device).reshape(-1, 1)
         )
-        position_matrix.clamp_(-self.position_max_embedding, self.position_max_embedding)
-        position_matrix += self.position_max_embedding
-        position_matrix = self.relative_position_embedding[position_matrix]
+        position_matrix_index.clamp_(-self.position_max_embedding, self.position_max_embedding)
+        position_matrix_index += self.position_max_embedding
+        position_matrix = self.relative_position_embedding[position_matrix_index]
         position_matrix = repeat(position_matrix, 'n1 n2 h -> (b h) n1 n2', b=x.shape[0])
+
+        c_matrix = self.C_embedding[position_matrix_index]
+        c_matrix = repeat(c_matrix, 'n1 n2 h -> (b h) n1 n2', b=x.shape[0])
+
         sim = (einsum('b i d, b j d -> b i j', q, k) + position_matrix) * self.scale
 
         if exists(mask):
@@ -115,7 +119,7 @@ class CrossAttention(nn.Module):
             sim.masked_fill_(~mask, max_neg_value)
 
         # attention, what we cannot get enough of
-        attn = sim.softmax(dim=-1)
+        attn = sim.softmax(dim=-1) * c_matrix
 
         out = einsum('b i j, b j d -> b i d', attn, v)
         out = rearrange(out, '(b h) n d -> b n (h d)', h=h)
