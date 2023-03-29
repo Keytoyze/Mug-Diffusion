@@ -1,12 +1,17 @@
 from abc import abstractmethod
 
 import einops
+# import librosa
 import numpy as np
 import torch as th
 import torch.nn
 import torch.nn as nn
+# import sys
+# import os
+# sys.path.append(os.getcwd())
 
 from mug.model.attention import ContextualTransformer
+from mug.model.s4 import S4
 from mug.model.models import (
     Upsample, Downsample, Normalize, FixedPositionalEmbedding
 )
@@ -67,6 +72,21 @@ class LSTMLayer(nn.Module):
         x = einops.rearrange(x, "b t c -> b c t")
         # print(x)
         return input + x
+
+class S4Layer(nn.Module):
+    def __init__(self, model_channels, num_layers=1) -> None:
+        super().__init__()
+
+        self.norm = Normalize(model_channels)
+        self.s4 = zero_module(S4(model_channels))
+    
+    def forward(self, x):
+        input = x
+        x = self.norm(x)
+        x = self.s4(x)[0]
+        # print(x)
+        return input + x
+        # return input
 
 class TimestepEmbedSequential(nn.Sequential, TimestepBlock):
     """
@@ -279,6 +299,7 @@ class UNetModel(nn.Module):
             use_scale_shift_norm=False,
             lstm_last=False,
             lstm_layer=False,
+            s4_layer=False,
             transformer_depth=1,  # custom transformer support
             context_dim=None,  # custom transformer support
     ):
@@ -358,6 +379,12 @@ class UNetModel(nn.Module):
                 if lstm_layer and level_res == 0:
                     layers.append(
                         LSTMLayer(
+                            model_channels=ch
+                        )
+                    )
+                if s4_layer:
+                    layers.append(
+                        S4Layer(
                             model_channels=ch
                         )
                     )
@@ -443,6 +470,12 @@ class UNetModel(nn.Module):
                             model_channels=ch
                         )
                     )
+                if s4_layer and i != num_res_blocks:
+                    layers.append(
+                        S4Layer(
+                            model_channels=ch
+                        )
+                    )
                 if level and i == num_res_blocks:
                     layers.append(
                         Upsample(ch, conv_resample)
@@ -456,18 +489,6 @@ class UNetModel(nn.Module):
             nn.SiLU(),
             zero_module(conv_nd(dims, model_channels, out_channels, 3, padding=1)),
         )
-
-        self.lstm_last = lstm_last
-        if lstm_last:
-            self.lstm = zero_module(torch.nn.LSTM(input_size=out_channels,
-                                                  hidden_size=model_channels,
-                                                  batch_first=True,
-                                                  num_layers=2))
-            self.lstm_out = nn.Sequential(
-                Normalize(model_channels),
-                nn.SiLU(),
-                zero_module(conv_nd(dims, model_channels, out_channels, 3, padding=1))
-            )
 
     def convert_to_fp16(self):
         """
@@ -524,13 +545,6 @@ class UNetModel(nn.Module):
         h = h.type(x.dtype)
         h = self.out(h)
 
-        # if self.lstm_last:
-        #     h1 = einops.rearrange(h, "b c t -> b t c")
-        #     h1 = self.lstm(h1)[0]
-        #     h1 = einops.rearrange(h1, "b t c -> b c t")
-        #     h1 = self.lstm_out(h1)
-        #     h2 = h + h1
-        #     return h2
         return h
 
     def summary(self):
@@ -557,4 +571,4 @@ if __name__ == '__main__':
               num_res_blocks=2, attention_resolutions=[8, 4, 2],
               channel_mult=[1, 2, 3, 4], num_heads=8,
               context_dim=128, audio_channels=[256, 256, 512, 512],
-              lstm_last=True, lstm_layer=True).summary()
+              lstm_last=True, lstm_layer=True, s4_layer=True).summary()

@@ -344,6 +344,12 @@ class DDPM(pl.LightningModule):
                 loss = torch.nn.functional.mse_loss(target, pred)
             else:
                 loss = torch.nn.functional.mse_loss(target, pred, reduction='none')
+        elif self.loss_type == 'smooth_l1':
+            if mean:
+                loss = torch.nn.functional.smooth_l1_loss(target, pred, beta=0.1)
+            else:
+                loss = torch.nn.functional.smooth_l1_loss(target, pred, beta=0.1, reduction='none')
+            loss += 0.05
         else:
             raise NotImplementedError(f"unknown loss type '{self.loss_type}'")
 
