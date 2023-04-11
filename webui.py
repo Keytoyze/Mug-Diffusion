@@ -4,6 +4,9 @@ from PIL import Image
 import requests
 import yaml
 import os 
+from reamber.osu.OsuMap import OsuMap
+from reamber.algorithms.playField import PlayField
+from reamber.algorithms.playField.parts import *
 
 # rs:Rank Status (default:Ranked)
 # sr:star rank
@@ -28,7 +31,7 @@ def yaml_remove(keyList):
 
 def startMapping(audioPath, audioTitle, audioArtist, \
                  rss, rs, srs, sr, etts, ett, cjs, cj, cjss, cjsc, stas, sta, stass, stasc, sss, ss, ssss, sssc, jss, js, jsss, jssc,\
-                    hss, hs, hsss, hssc, jsps, jsp, jspss, jspsc, techs, tech, techss, techsc, mts, lnrs, mapType, lnr, step, count, scale, after):
+                    hss, hs, hsss, hssc, jsps, jsp, jspss, jspsc, techs, tech, techss, techsc, mts, lnrs, mapType, lnr,  count, step, scale, after):
     removeList = []
 
     if rss == False:
@@ -141,12 +144,32 @@ def startMapping(audioPath, audioTitle, audioArtist, \
     #os.system('activate MuG_Diffusion' + '&&' + cmd)
     fin = 'finished!'
 
-    url = 'https://osu.sayobot.cn/qiafan/hiosu.png'
-    req = requests.get(url)
-    pic = Image.open(BytesIO(req.content))
-    return pic
+    # a funtion that loads the path of generated map(s)
+
+    # single picture example
+    # url = 'https://osu.sayobot.cn/qiafan/hiosu.png'
+    # req = requests.get(url)
+    # pic = Image.open(BytesIO(req.content))
+
+    # reamber generate example
+    m = OsuMap.read_file(reamberExample)
+    pf = (
+        PlayField(m=m, duration_per_px=5, padding=40) +\
+            PFDrawBpm() +\
+            PFDrawBeatLines() +\
+            PFDrawColumnLines() +\
+            PFDrawNotes() +\
+            PFDrawOffsets()
+    )
+    pic = pf.export_fold(max_height=500)
+    return gr.update(value=[pic for i in range(count)], visible=True)
 
 if __name__ == "__main__":
+    reamberExample = r"Gram - Nibelungen (pieerre) [LN bukbuk].osu"
+    with open("imageView.html", "r") as f:
+        _html = f.read()
+        html = _html.replace("\n", " ")
+    print(_html)
     prompt_dir = 'configs/mapping_config/'
     feature_dicts = []
     feature_dicts.append(yaml.safe_load(open(os.path.join(prompt_dir, f"feature_1.yaml"))))
@@ -332,16 +355,21 @@ if __name__ == "__main__":
                hs_score_switch, hs_score, jsp_switch, jsp, jsp_score_switch, jsp_score, tech_switch, tech, tech_score_switch, tech_score,\
                maptype_switch, lnr_switch, mapType, lnr, count, step, scale, aftergen]
         btn = gr.Button('Start Mapping')
-        out = gr.Image(label="Map Overview")
+        out = gr.Gallery(label="Map overview", visible=False, elem_id='output')
+        #out.style(preview=True)
+        test = gr.Textbox(label="test")
+        
+        #def displayWindow(num):
+        #    return [gr.update(visible=True) for i in range(num)] + [gr.update(visible=False) for j in range(16-num)]
+        #btn.click(displayWindow, count, out)
         btn.click(startMapping, inp, out)
-
+        #btn.click(display, t, test)
 
     #webui.css('lbox { font-size:20px; }')
 
     webui.launch(share=True)
 '''
     with gr.Blocks() as demo:
-        with gr.Accordion("See Details"):
-            gr.Markdown("lorem ipsum")
-    demo.launch()
+        HTML = gr.HTML(value=_html)
+    #demo.launch()
 '''    
