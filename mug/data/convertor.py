@@ -18,11 +18,12 @@ class BeatmapMeta:
     version: str = ""
     set_id: int = -1
     file_meta: List[str] = field(default_factory=lambda: [])
+    timing_points: List[str] = field(default_factory=lambda: [])
 
     def for_batch(self):
         result = asdict(self, dict_factory=lambda x: {k: v
                                                       for (k, v) in x
-                                                      if k != 'convertor' and k != 'file_meta'})
+                                                      if k != 'convertor' and k != 'file_meta' and k != 'timing_points'})
         return result
 
 
@@ -44,6 +45,9 @@ def parse_osu_file(osu_path, convertor_params: Optional[dict]) -> Tuple[List[str
 
         if parsing_context == "[HitObjects]" and "," in line:
             hit_objects.append(line)
+        elif parsing_context == "[TimingPoints]" and "," in line:
+            meta.file_meta.append(line)
+            meta.timing_points.append(line)
         else:
             if line != "[HitObjects]":
                 meta.file_meta.append(line)
@@ -118,6 +122,12 @@ def save_osu_file(meta: BeatmapMeta, note_array: np.ndarray, path=None, override
 
 class BaseOsuConvertor(metaclass=ABCMeta):
 
+    def read_time(self, text):
+        t = int(float(text)) / self.rate + self.offset_ms
+        index = int(t / self.frame_ms)
+        offset = (t - index * self.frame_ms) / self.frame_ms
+        return int(round(t)), index, offset
+
     def __init__(self, frame_ms, max_frame, mirror=False, from_logits=False, offset_ms=0,
                  random=False, rate=1.0, mirror_at_interval_prob=0.0):
         self.frame_ms = frame_ms
@@ -137,6 +147,66 @@ class BaseOsuConvertor(metaclass=ABCMeta):
     @abstractmethod
     def array_to_objects(self, note_array: np.ndarray, meta: BeatmapMeta) -> List[str]: pass
 
+
+    def timing_to_array(self, meta: BeatmapMeta) -> Tuple[np.ndarray, bool]:
+        if len(meta.timing_points) == 0:
+            return [None, False]
+
+        red_lines = [] # (st, bpm)
+        segment_list = [] # (st, visual_bpm, true_bpm)
+        last_true_bpm = None
+
+        for line in meta.timing_points:
+            time_ms, timing = line.split(",")[:2]
+            timing = float(timing)
+            time_ms = float(time_ms)
+            if timing < 0: # green line
+                true_bpm = last_true_bpm * 100 / -timing
+            else: # red lines
+                true_bpm = 60000 / timing
+                last_true_bpm = true_bpm
+                if len(red_lines) == 0 or red_lines[-1][1] != true_bpm:
+                    red_lines.append((time_ms, true_bpm))
+            segment_list.append((time_ms, true_bpm, last_true_bpm))
+
+        # detech visual sv
+        cur_bpm = None
+        has_sv = False
+        if len(red_lines) > 1:
+            for i in range(len(segment_list) - 1):
+                if abs(segment_list[i][0] - segment_list[i + 1][0]) <= 1:
+                    continue
+                if cur_bpm is None:
+                    cur_bpm = segment_list[i][1]
+                else:
+                    if abs(cur_bpm - segment_list[i][1]) > 0.00001:
+                        has_sv = True
+                        break
+
+        # generate beat array
+        array_length = min(self.max_frame, int(self.max_frame / self.rate))
+        array = np.zeros((array_length, 2), dtype=np.float32)
+        for i, (start_time_ms, true_bpm, _) in enumerate(segment_list):
+
+            while true_bpm < 150:
+                true_bpm = true_bpm * 2
+            while true_bpm >= 300:
+                true_bpm = true_bpm / 2
+    
+            if i == len(segment_list) - 1:
+                end_time_ms = self.frame_ms * self.max_frame
+            else:
+                end_time_ms = segment_list[i + 1][0]
+            beat_ms = start_time_ms
+            while beat_ms <= end_time_ms:
+                _, idx, offset = self.read_time(beat_ms)
+                if idx >= array_length:
+                    continue
+                array[idx, 0] = 1
+                array[idx, 1] = offset
+                beat_ms += 60000 / true_bpm / 2
+        
+        return array, has_sv
 
 class OsuManiaConvertor(BaseOsuConvertor):
     def is_binary_positive(self, input):
@@ -158,12 +228,6 @@ class OsuManiaConvertor(BaseOsuConvertor):
         [offset_end: 0-1]
         valid only if is_holding = 1 and latter.is_holding = 0
     """
-
-    def read_time(self, text):
-        t = int(float(text)) / self.rate + self.offset_ms
-        index = int(t / self.frame_ms)
-        offset = (t - index * self.frame_ms) / self.frame_ms
-        return int(round(t)), index, offset
 
     def array_to_objects(self, note_array: np.ndarray, meta: BeatmapMeta) -> List[str]:
         note_array = note_array.transpose()
@@ -262,7 +326,8 @@ MOD_CONVERTOR = {
 
 if __name__ == "__main__":
     # map_path = """E:\E\osu!\Songs\891164 Various Artists - 4K LN Dan Courses v2 - Extra Level -\Various Artists - 4K LN Dan Courses v2 - Extra Level - (_underjoy) [13th Dan - Yoru (Marathon)].osu"""
-    map_path = r"""E:\E\osu!\Songs\1395676 goreshit - thinking of you\goreshit - thinking of you (hna) [obsession 1.1x (250bpm)].osu"""
+    # map_path = r"""E:\E\osu!\Songs\1395676 goreshit - thinking of you\goreshit - thinking of you (hna) [obsession 1.1x (250bpm)].osu"""
+    map_path = r"data/beatmap_4k/824258 wa - Black Lotus/wa. - Black Lotus (Insp1r3) [Blooming].osu"
     objs, beatmap_meta = parse_osu_file(map_path, convertor_params={"frame_ms": 2048 / 22050 / 2 * 1000,
                                                                     "max_frame": 8192,
                                                                     "mirror": False,
@@ -270,7 +335,9 @@ if __name__ == "__main__":
                                                                     "rate": 1.0,
                                                                     "random": False,
                                                                     "mirror_at_interval_prob": 1.0})
-    save_osu_file(beatmap_meta,
-                  beatmap_meta.convertor.objects_to_array(objs, beatmap_meta)[0],
-                  map_path.replace(".osu", "_convert.osu"),
-                  {"Version": "250bpm - convert"})
+    # save_osu_file(beatmap_meta,
+    #               beatmap_meta.convertor.objects_to_array(objs, beatmap_meta)[0],
+    #               map_path.replace(".osu", "_convert.osu"),
+    #               {"Version": "250bpm - convert"})
+
+    print(beatmap_meta.convertor.timing_to_array(beatmap_meta)[0].tolist())

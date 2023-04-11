@@ -38,17 +38,30 @@ for path in paths:
             notes.append((start, end, column))
         if len(notes) == 0:
             continue
-        notes = sorted(notes, key=lambda x: x[0])
+        notes = sorted(notes, key=lambda x: x[0] * 100 + x[-1])
         offset = notes[0][0]
         notes = tuple((x[0] - offset, None if x[1] is None else x[1] - offset, x[2]) for x in notes)
         md5 = int(hashlib.md5(str(notes).encode('utf-8')).hexdigest(), 16)
         if md5 in md5_to_path:
             print(md5_to_path[md5], path)
         else:
-            with open("clean.txt", "a+") as f:
-                f.write(path + "\n")
+            valid = True
+            for number in ['1.1', '1.2', '1.3', '1.4', '1.05', '1.15', '1.25', '1.35', '1.45', '0.7', '0.75', '0.8', '0.85', '0.9', '0.95']:
+                if f'{number}x' in path or f'x{number}' in path or f'{number}]' in path:
+                    valid = False
+                    break
+                number = number.replace(".", ",")
+                if f'{number}x' in path or f'x{number}' in path or f'{number}]' in path:
+                    valid = False
+                    break
+            if valid:
+                with open("clean.txt", "a+") as f:
+                    f.write(path + "\n")
+            else:
+                print(path)
         md5_to_path[md5] = path
     except:
-        continue
+        import traceback
+        traceback.print_exc()
     
 

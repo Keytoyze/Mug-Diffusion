@@ -3,6 +3,7 @@ from einops import rearrange
 
 from mug.model.attention import ContextualTransformer
 from mug.model.models import *
+from mug.model.s4 import S4
 
 
 class STFTEncoder(nn.Module):
@@ -317,6 +318,82 @@ class MelspectrogramEncoder1D(nn.Module):
                              col_names=("output_size", "num_params", "kernel_size"),
                              depth=10, device=torch.device("cpu"))
 
+
+class S4BidirectionalLayer(nn.Module):
+    def __init__(self, model_channels) -> None:
+        super().__init__()
+
+        self.norm = Normalize(model_channels)
+        self.s4_model = S4(model_channels, bidirectional=True)
+    
+    def forward(self, x):
+        input = x
+        x = self.norm(x)
+        x = self.s4_model(x)[0]
+        return input + x
+
+
+class TimingDecoder(nn.Module):
+    def __init__(self, *, x_channels, middle_channels, z_channels,
+                 channel_mult, num_res_blocks, num_groups=32,
+                 **ignore_kwargs):
+        super().__init__()
+        self.num_resolutions = len(channel_mult)
+        self.num_res_blocks = num_res_blocks
+        cur_scale = 1
+
+        block_in = middle_channels * channel_mult[self.num_resolutions - 1]
+
+        self.conv_in = torch.nn.Conv1d(z_channels,
+                                       block_in,
+                                       kernel_size=3,
+                                       stride=1,
+                                       padding=1)
+
+        self.up = nn.ModuleList()
+        for i_level in reversed(range(self.num_resolutions)):
+            block = nn.ModuleList()
+            block_out = middle_channels * channel_mult[i_level]
+            for i_block in range(self.num_res_blocks):
+                block.append(ResnetBlock(in_channels=block_in,
+                                         out_channels=block_out,
+                                         temb_channels=0,
+                                         dropout=0,
+                                         num_groups=num_groups))
+                block.append(S4BidirectionalLayer(block_out))
+                block_in = block_out
+            up = nn.Module()
+            up.block = block
+            if i_level != 0:
+                up.upsample = Upsample(block_in, True)
+                cur_scale += 1
+            self.up.insert(0, up)  # prepend to get consistent order
+
+        # end
+        self.norm_out = Normalize(block_in, num_groups=num_groups)
+        self.conv_out = torch.nn.Conv1d(block_in,
+                                        x_channels,
+                                        kernel_size=3,
+                                        stride=1,
+                                        padding=1)
+
+    def forward(self, z):
+
+        # z to block_in
+        h = self.conv_in(z)
+
+        # upsampling
+        for i_level in reversed(range(self.num_resolutions)):
+            for i_block in range(self.num_res_blocks):
+                h = self.up[i_level].block[i_block](h)
+            if i_level != 0:
+                h = self.up[i_level].upsample(h)
+
+        # end
+        h = self.norm_out(h)
+        h = F.silu(h)
+        h = self.conv_out(h)
+        return h
 
 class MelspectrogramScaleEncoder1D(nn.Module):
     def __init__(self, *, n_freq, middle_channels,

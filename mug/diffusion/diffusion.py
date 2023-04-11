@@ -229,7 +229,7 @@ class DDPM(pl.LightningModule):
     @torch.no_grad()
     def log_beatmap(self, batch, count, **kwargs):
         self.log_index += 1
-        if self.log_index % 15 != 2:
+        if self.log_index % 5 != 2:
             return
         device = self.betas.device
         batch_size = batch['note'].shape[0]
@@ -346,10 +346,10 @@ class DDPM(pl.LightningModule):
                 loss = torch.nn.functional.mse_loss(target, pred, reduction='none')
         elif self.loss_type == 'smooth_l1':
             if mean:
-                loss = torch.nn.functional.smooth_l1_loss(target, pred, beta=0.1)
+                loss = torch.nn.functional.smooth_l1_loss(target, pred, beta=0.02)
             else:
-                loss = torch.nn.functional.smooth_l1_loss(target, pred, beta=0.1, reduction='none')
-            loss += 0.05
+                loss = torch.nn.functional.smooth_l1_loss(target, pred, beta=0.02, reduction='none')
+            loss += 0.01
         else:
             raise NotImplementedError(f"unknown loss type '{self.loss_type}'")
 

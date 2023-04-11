@@ -15,6 +15,7 @@ class AutoencoderKL(pl.LightningModule):
                  ddconfig,
                  lossconfig,
                  ckpt_path=None,
+                 remove_prefix=None,
                  ignore_keys=None,
                  training_keys=None,
                  monitor=None,
@@ -37,10 +38,10 @@ class AutoencoderKL(pl.LightningModule):
         if monitor is not None:
             self.monitor = monitor
         if ckpt_path is not None:
-            self.init_from_ckpt(ckpt_path, ignore_keys=ignore_keys)
+            self.init_from_ckpt(ckpt_path, ignore_keys=ignore_keys, remove_prefix=remove_prefix)
         self.training_keys = training_keys
 
-    def init_from_ckpt(self, path, ignore_keys=None):
+    def init_from_ckpt(self, path, ignore_keys=None, remove_prefix=None):
         if ignore_keys is None:
             ignore_keys = list()
         sd = torch.load(path, map_location="cpu")["state_dict"]
@@ -50,8 +51,18 @@ class AutoencoderKL(pl.LightningModule):
                 if k.startswith(ik):
                     print("Deleting key {} from state_dict.".format(k))
                     del sd[k]
-        self.load_state_dict(sd, strict=False)
-        print(f"Restored from {path}")
+        if remove_prefix is not None:
+            new_sd = {}
+            for k in sd:
+                if k.startswith(remove_prefix):
+                    new_sd[k.replace(remove_prefix, "")] = sd[k]
+            sd = new_sd
+        missing, unexpected = self.load_state_dict(sd, strict=False)
+        print(f"Restored from {path}, missing = {len(missing)}, unexpected = {len(unexpected)}")
+        if len(missing) > 0:
+            print(f"Missing Keys: {missing}")
+        if len(unexpected) > 0:
+            print(f"Unexpected Keys: {unexpected}")
 
     def encode(self, x):
         h = self.encoder(x)
@@ -135,6 +146,7 @@ class AutoencoderKL(pl.LightningModule):
 
     @torch.no_grad()
     def log_beatmap(self, batch, count, **kwargs):
+        return
         notes = batch['note']
         valid_flag = batch['valid_flag']
         valid_flag = torch.unsqueeze(valid_flag, dim=1)  # [B, 1, T]

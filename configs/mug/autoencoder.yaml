@@ -1,12 +1,13 @@
 model:
-  base_learning_rate: 5e-7
+  base_learning_rate: 0.000003
   target: mug.firststage.autoencoder.AutoencoderKL
   params:
     monitor: "val/loss"
-    ckpt_path: /var/chenmouxiang/mug-diffusion/logs/2022-12-30T01-07-57_autoencoder/checkpoints/epoch=000359.ckpt
+    ckpt_path: logs/2023-04-03T19-59-59_autoencoder/checkpoints/epoch=000050.ckpt
+    # remove_prefix: 'model.first_stage_model.'
     # ignore_keys: [ 'encoder.conv_out', 'decoder.conv_in' ]
     # training_keys: [ 'encoder.conv_out', 'decoder.conv_in' ]
-    kl_weight: 0.001
+    kl_weight: 0.00001
     lossconfig:
       target: mug.firststage.losses.ManiaReconstructLoss
       params:
@@ -33,24 +34,36 @@ model:
       # 5.9443072 32
       num_res_blocks: 1
 
-
 data:
   target: main.DataModuleFromConfig
   params:
-    batch_size: 128
+    batch_size: 200
     wrap: False
-    num_workers: 6
+    # num_workers: 0
+    num_workers: 7
     common_params:
-      txt_file: "data/beatmap_4k/beatmap.txt"
+      txt_file: [
+        "data/clean_filter_rate.txt"
+      ]
       sr: 22050
-      n_fft: 2048
-      max_audio_frame: 8192
+      n_fft: 512
+      max_audio_frame: 32768
+      audio_note_window_ratio: 8
       n_mels: 128
       cache_dir: "data/audio_cache/"
+      with_audio: false
+      with_feature: false
+      feature_yaml: "configs/mug/mania_beatmap_features.yaml"
+      # audio_window_frame = n_fft / sr / 4 = 0.00580499 s
+      # note_window_frame = audio_note_window_ratio * audio_window_frame = 0.04643990 s
+      # max_duration = audio_window_frame * max_audio_frame = 190.2179 s = 3 min 10 s
+      # max_note_frame = max_audio_frame / audio_note_window_ratio = 4096
+
+      # old ===========
       # audio_window_frame = n_fft / sr / 4 = 0.02321995 s
-      # note_window_frame = 2 * audio_window_frame = 0.04643990 s
+      # note_window_frame = audio_note_window_ratio * audio_window_frame = 0.04643990 s
       # max_duration = audio_window_frame * max_audio_frame = 380.4357 s = 6 min 20 s
-      # max_note_frame = max_audio_frame / 2 = 4096
+      # max_note_frame = max_audio_frame / audio_note_window_ratio = 8192
     train:
       target: mug.data.dataset.OsuTrainDataset
       params:
@@ -58,13 +71,12 @@ data:
         mirror_at_interval_p: 0.2
         random_p: 0.1
         shift_p: 0.1
-        rate: [ 0.8,1.2 ]
+        rate: [ 0.75,1.5 ]
 
     validation:
       target: mug.data.dataset.OsuValidDataset
       params: {}
 #        test_txt_file: "data\\mug\\local_mania_4k_test.txt"
-
 
 lightning:
   callbacks:
@@ -79,4 +91,4 @@ lightning:
     benchmark: True
     accelerator: dp
     accumulate_grad_batches: 1
-    precision: 16
+    # precision: 16

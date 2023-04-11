@@ -34,6 +34,7 @@ class OsuDataset(Dataset):
                  random_p=0,
                  shift_p=0,
                  rate_p=0,
+                 pitch_p=0,
                  feature_dropout_p=0,
                  mirror_at_interval_p=0,
                  freq_mask_p=0,
@@ -78,6 +79,7 @@ class OsuDataset(Dataset):
         self.random_p = random_p
         self.shift_p = shift_p
         self.rate_p = rate_p
+        self.pitch_p = pitch_p
         self.freq_mask_p = freq_mask_p
         self.freq_mask_num = freq_mask_num
         self.mirror_at_interval_p = mirror_at_interval_p
@@ -236,10 +238,23 @@ class OsuDataset(Dataset):
                 elif t > self.max_audio_frame:
                     audio = audio[:, :self.max_audio_frame]
                 
+                max_length_ms = np.sum(valid_flag) * convertor_params['frame_ms'] + 2000
+                max_valid_length = int(max_length_ms / self.audio_frame_duration / 1000) + 1
+                if max_valid_length < audio.shape[1]:
+                    audio[:, max_valid_length:] = 0
+                
                 if np.random.random() < self.freq_mask_p:
                     f = int(np.random.uniform(0, self.freq_mask_num)) # [0, F)
                     f0 = random.randint(0, self.n_mels - f) # [0, v - f)
                     audio[f0:f0 + f, :] = 0
+                
+                if np.random.random() < self.pitch_p:
+                    i = np.random.randint(1, 5)
+                    zeros = np.zeros((i, audio.shape[1])).astype(np.float16)
+                    if np.random.random() < 0.5:
+                        audio = np.concatenate([audio[i:, :], zeros], axis=0)
+                    else:
+                        audio = np.concatenate([zeros, audio[:-i, :]], axis=0)
 
                 example["audio"] = audio.astype(np.float32)
 

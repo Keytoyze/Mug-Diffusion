@@ -78,15 +78,17 @@ class S4Layer(nn.Module):
         super().__init__()
 
         self.norm = Normalize(model_channels)
-        self.s4 = zero_module(S4(model_channels))
+        self.s4_model = S4(model_channels)
+        self.out_layer = zero_module(
+            conv_nd(1, model_channels, model_channels, 3, padding=1)
+        )
     
     def forward(self, x):
         input = x
         x = self.norm(x)
-        x = self.s4(x)[0]
-        # print(x)
+        x = self.s4_model(x)[0]
+        x = self.out_layer(x)
         return input + x
-        # return input
 
 class TimestepEmbedSequential(nn.Sequential, TimestepBlock):
     """
