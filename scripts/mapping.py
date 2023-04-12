@@ -1,21 +1,19 @@
-import argparse, os, sys, glob
+import argparse
+import os
+import sys
+
 sys.path.append(".")
 
-import numba
 import torch
 import numpy as np
 from omegaconf import OmegaConf
-from PIL import Image
-from tqdm import tqdm, trange
 import yaml
-from einops import rearrange
-from torchvision.utils import make_grid
 import eyed3
 
 from mug.util import instantiate_from_config, feature_dict_to_embedding_ids, \
     load_audio_without_cache
 from mug.diffusion.ddim import DDIMSampler
-from mug.data.convertor import save_osu_file, BeatmapMeta, parse_osu_file
+from mug.data.convertor import save_osu_file, parse_osu_file
 from mug.diffusion.diffusion import DDPM
 from mug.data.utils import gridify, remove_intractable_mania_mini_jacks
 import shutil
