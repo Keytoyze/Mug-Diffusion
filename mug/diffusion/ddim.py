@@ -165,7 +165,7 @@ class DDIMSampler(object):
         else:
             x_in = torch.cat([x] * 2)
             t_in = torch.cat([t] * 2)
-            w_in = torch.cat([w] * 2)
+            w_in = [torch.cat([wi] * 2) for wi in w]
             c_in = torch.cat([unconditional_conditioning, c])
             e_t_uncond, e_t = self.model.model.forward(x_in, t_in, c_in, w_in).chunk(2)
             e_t = e_t_uncond + unconditional_guidance_scale * (e_t - e_t_uncond)

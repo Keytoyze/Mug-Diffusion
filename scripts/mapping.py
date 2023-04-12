@@ -17,6 +17,7 @@ from mug.util import instantiate_from_config, feature_dict_to_embedding_ids, \
 from mug.diffusion.ddim import DDIMSampler
 from mug.data.convertor import save_osu_file, BeatmapMeta, parse_osu_file
 from mug.diffusion.diffusion import DDPM
+from mug.data.utils import gridify, remove_intractable_mania_mini_jacks
 import shutil
 
 
@@ -165,143 +166,145 @@ def gridify_potassium(hit_objects):
 
     return cur_bpm, offset
 
-def gridify(hit_objects):
-    fraction = 4
-    time_list = []
-    for line in hit_objects:
-        time = int(line.split(",")[2])
-        time_list.append(time)
-    if len(hit_objects) == 0:
-        return
-    start_time, end_time = time_list[0], time_list[-1]
-
-    def filter_time(l):
-        # <10ms 的 notes 视作一个，值取平均，保存数量
-        epsilon = 10
-        assert len(l) > 1
-
-        l.append(2e9)
-        result_idx = [0]
-        for idx in range(1, len(l)):
-            if l[idx] - l[result_idx[-1]] < epsilon:
-                continue
-            result_idx.append(idx)
-        res = []
-        for idx in range(0, len(result_idx) - 1):
-            num = result_idx[idx + 1] - result_idx[idx]
-            avg = sum(l[result_idx[idx]:result_idx[idx + 1]]) / num
-            res.append((avg, num))
-        return res
-
-    # list of (avg_timestamp, num)
-    der_list = filter_time(time_list)
-
-    # 根据 offset 找 bpm，目的是让大部分都对齐在 1/12 线上
-    def get_bpm(precision, offset):
-        result_bpm = -1
-        result_loss = 1e9
-        result_result = {}
-        for bpm in range(150 * precision, 300 * precision):
-            bpm /= precision
-            gap = 60 * 1000 / (fraction * bpm)
-            loss = 0
-            s, s2, notes = 0, 0, 0
-            for (avg_time, cnt) in der_list:
-                gap_time = avg_time - offset
-                shang = round(gap_time / gap)
-                delta = (gap_time - gap * shang)
-
-                s += delta * cnt
-                s2 += delta * delta * cnt
-                notes += cnt
-                # loss += delta * delta
-
-            # sum delta^2/n
-            loss = (s2 - 2 * s * (s / notes) + (s * s / notes / notes)) / notes
-
-            loss /= gap
-
-            if loss < result_loss:
-                result_bpm = bpm
-                result_loss = loss
-            # if loss < 2:
-            #     result_result[bpm] = loss
-        print(result_loss)
-        return result_bpm
-
-    def get_offset(bpm, offset):
-        # step 1:
-        # 在这个 bpm 下，如何更改 offset 让尽可能多的音对在 1/1 1/2 1/4 线上？
-        #          1/1    1/6 1/4 1/3     1/2    2/3 3/4 1/6
-        if fraction == 12:
-            weights = [100, 0, 20, 50, 60, 0, 100, 0, 60, 50, 20, 0]
-        elif fraction == 4:
-            weights = [100, 100, 100, 100]
-        else:
-            raise Exception("")
-        gap = 60 * 1000 / (fraction * bpm)
-        for precision_range in [range(-300, 300, 30), range(-30, 30, 5), range(-5, 5, 1)]:
-            def get_val(offset):
-                val = 0
-                for (avg_time, cnt) in der_list:
-                    gap_time = avg_time - offset
-                    shang = round(gap_time / gap)
-                    frac = shang % fraction
-                    val += weights[frac] * cnt
-                return val
-
-            best_offset = offset
-            best_val = get_val(offset)
-            for i in precision_range:
-                val = get_val(offset + i)
-                if val > best_val:
-                    best_val = val
-                    best_offset = offset + i
-            offset = best_offset
-
-        # step 2: 试试能否做到让对音尽量准确
-        s, tot = 0, 0
-        for (avg_time, cnt) in der_list:
-            gap_time = avg_time - offset
-            shang = round(gap_time / gap)
-            delta = (gap_time - gap * shang)
-            s += delta * cnt
-            tot += cnt
-        offset += s / tot
-        return offset
-
-    offset = start_time
-    for cur_precision in [10]:
-        cur_bpm = get_bpm(cur_precision, offset)
-        offset = get_offset(cur_bpm, offset)
-        print(f"[{cur_precision}] bpm: {cur_bpm}, offset: {offset}")
-    cur_gap = 60 * 1000 / cur_bpm
-
-    def attaching(t_start):
-        t = t_start - offset
-        base_offset = int(t / cur_gap) * cur_gap
-        note_offset = t - base_offset
-        for div in [1, 2, 3, 4, 6, 8, 12, 16]:
-            gap_div = cur_gap / div
-            gap_grid_time = round(note_offset / gap_div) * gap_div
-            gap_offset = abs(note_offset - gap_grid_time)
-            if gap_offset <= 10:
-                result = str(int(gap_grid_time + base_offset + offset))
-            if div == 16:
-                result = str(int(gap_grid_time + base_offset + offset))
-        return result
-
-    gridified_hit_objects = []
-    for line in hit_objects:
-        elements = line.split(",")
-        elements[2] = attaching(int(elements[2]))
-        if int(elements[3]) == 128:
-            e = elements[5].split(":")
-            e[0] = attaching(int(e[0]))
-            elements[5] = ":".join(e)
-        gridified_hit_objects.append(",".join(elements))
-
-    return cur_bpm, offset, gridified_hit_objects
+# def gridify(hit_objects):
+#     fraction = 4
+#     time_list = []
+#     for line in hit_objects:
+#         time = int(line.split(",")[2])
+#         time_list.append(time)
+#     if len(hit_objects) == 0:
+#         return
+#     start_time, end_time = time_list[0], time_list[-1]
+#
+#     def filter_time(l):
+#         # <10ms 的 notes 视作一个，值取平均，保存数量
+#         epsilon = 10
+#         assert len(l) > 1
+#
+#         l.append(2e9)
+#         result_idx = [0]
+#         for idx in range(1, len(l)):
+#             if l[idx] - l[result_idx[-1]] < epsilon:
+#                 continue
+#             result_idx.append(idx)
+#         res = []
+#         for idx in range(0, len(result_idx) - 1):
+#             num = result_idx[idx + 1] - result_idx[idx]
+#             avg = sum(l[result_idx[idx]:result_idx[idx + 1]]) / num
+#             res.append((avg, num))
+#         return res
+#
+#     # list of (avg_timestamp, num)
+#     der_list = filter_time(time_list)
+#
+#     # 根据 offset 找 bpm，目的是让大部分都对齐在 1/12 线上
+#     def get_bpm(precision, offset):
+#         result_bpm = -1
+#         result_loss = 1e9
+#         result_result = {}
+#         for bpm in range(150 * precision, 300 * precision):
+#             bpm /= precision
+#             gap = 60 * 1000 / (fraction * bpm)
+#             loss = 0
+#             s, s2, notes = 0, 0, 0
+#             for (avg_time, cnt) in der_list:
+#                 gap_time = avg_time - offset
+#                 shang = round(gap_time / gap)
+#                 delta = (gap_time - gap * shang)
+#
+#                 s += delta * cnt
+#                 s2 += delta * delta * cnt
+#                 notes += cnt
+#                 # loss += delta * delta
+#
+#             # sum delta^2/n
+#             loss = (s2 - 2 * s * (s / notes) + (s * s / notes / notes)) / notes
+#
+#             loss /= gap
+#
+#             if loss < result_loss:
+#                 result_bpm = bpm
+#                 result_loss = loss
+#             # if loss < 2:
+#             #     result_result[bpm] = loss
+#         print(result_loss)
+#         return result_bpm
+#
+#     def get_offset(bpm, offset):
+#         # step 1:
+#         # 在这个 bpm 下，如何更改 offset 让尽可能多的音对在 1/1 1/2 1/4 线上？
+#         #          1/1    1/6 1/4 1/3     1/2    2/3 3/4 1/6
+#         if fraction == 12:
+#             weights = [100, 0, 20, 50, 60, 0, 100, 0, 60, 50, 20, 0]
+#         elif fraction == 4:
+#             weights = [100, 100, 100, 100]
+#         else:
+#             raise Exception("")
+#         gap = 60 * 1000 / (fraction * bpm)
+#         for precision_range in [range(-300, 300, 30), range(-30, 30, 5), range(-5, 5, 1)]:
+#             def get_val(offset):
+#                 val = 0
+#                 for (avg_time, cnt) in der_list:
+#                     gap_time = avg_time - offset
+#                     shang = round(gap_time / gap)
+#                     frac = shang % fraction
+#                     val += weights[frac] * cnt
+#                 return val
+#
+#             best_offset = offset
+#             best_val = get_val(offset)
+#             for i in precision_range:
+#                 val = get_val(offset + i)
+#                 if val > best_val:
+#                     best_val = val
+#                     best_offset = offset + i
+#             offset = best_offset
+#
+#         # step 2: 试试能否做到让对音尽量准确
+#         s, tot = 0, 0
+#         for (avg_time, cnt) in der_list:
+#             gap_time = avg_time - offset
+#             shang = round(gap_time / gap)
+#             delta = (gap_time - gap * shang)
+#             s += delta * cnt
+#             tot += cnt
+#         offset += s / tot
+#         return offset
+#
+#     offset = start_time
+#     for cur_precision in [10]:
+#         cur_bpm = get_bpm(cur_precision, offset)
+#         offset = get_offset(cur_bpm, offset)
+#         print(f"[{cur_precision}] bpm: {cur_bpm}, offset: {offset}")
+#     cur_gap = 60 * 1000 / cur_bpm
+#
+#     def attaching(t_start):
+#         result = str(t_start)
+#         t = t_start - offset
+#         base_offset = int(t / cur_gap) * cur_gap
+#         note_offset = t - base_offset
+#         for div in [1, 2, 3, 4, 6, 8]:
+#             gap_div = cur_gap / div
+#             gap_grid_time = round(note_offset / gap_div) * gap_div
+#             gap_offset = abs(note_offset - gap_grid_time)
+#             if gap_offset <= 10:
+#                 result = str(int(gap_grid_time + base_offset + offset))
+#                 break
+#             # if div == 8:
+#             #     result = str(int(gap_grid_time + base_offset + offset))
+#         return result
+#
+#     gridified_hit_objects = []
+#     for line in hit_objects:
+#         elements = line.split(",")
+#         elements[2] = attaching(int(elements[2]))
+#         if int(elements[3]) == 128:
+#             e = elements[5].split(":")
+#             e[0] = attaching(int(e[0]))
+#             elements[5] = ":".join(e)
+#         gridified_hit_objects.append(",".join(elements))
+#
+#     return cur_bpm, offset, gridified_hit_objects
 
 
 if __name__ == "__main__":
@@ -310,7 +313,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--prompt_dir",
         type=str,
-        default=None,
+        default="configs/mapping_config",
         help="the prompt to render, in yaml config"
     )
 
@@ -447,6 +450,10 @@ if __name__ == "__main__":
 
         c = parse_feature(opt.n_samples, feature_dicts, feature_yaml, model)
         dataset = config.data.params.common_params
+
+        # dataset.max_audio_frame = 16384
+        # model.z_length = 256
+
         audio_hop_length = dataset.n_fft // 4
         audio_frame_duration = audio_hop_length / dataset.sr
 
@@ -489,26 +496,16 @@ if __name__ == "__main__":
         }
 
         def custom_gridify(hit_objects):
-            new_hit_objects = hit_objects
-            if opt.bpm is None or opt.offset is None:
-                estimate_bpm, estimate_offset, new_hit_objects = gridify(hit_objects)
-                if opt.bpm is not None:
-                    estimate_bpm = opt.bpm
-                if opt.offset is not None:
-                    estimate_offset = opt.offset
-            else:
-                estimate_bpm, estimate_offset = opt.bpm, opt.offset
-            if opt.no_adsorption:
-                return estimate_bpm, estimate_offset, hit_objects
-            else:
-                return estimate_bpm, estimate_offset, new_hit_objects
+            hit_objects = remove_intractable_mania_mini_jacks(hit_objects)
+            hit_objects, bpm, offset = gridify(hit_objects)
+            return bpm, offset, hit_objects
 
         for i, x_sample in enumerate(x_samples_ddim):
             convertor_params = convertor_params.copy()
             convertor_params["from_logits"] = True
             _, beatmap_meta = parse_osu_file(template_path, convertor_params)
             shutil.copyfile(opt.audio, os.path.join(save_dir, "audio.mp3"))
-            version = f"AI v{i + 1}"
+            version = f"AI v{i + 1} ({config.version}) - refined"
             creator = "MuG Diffusion"
             file_name = f"{audio_artist} - {audio_title} ({creator}) [{version}].osu".replace("/", "")
 

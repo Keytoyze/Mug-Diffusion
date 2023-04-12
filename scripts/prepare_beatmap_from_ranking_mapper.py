@@ -121,7 +121,6 @@ if __name__ == "__main__":
         setid.append(str(x))
     with open("download.txt", "w") as f:
         f.write("\n".join(setid))
-    raise
 
     feature_db_path = "data/beatmap_4k/feature.db"
     conn = sqlite3.connect(feature_db_path)
