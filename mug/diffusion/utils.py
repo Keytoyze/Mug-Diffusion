@@ -37,7 +37,6 @@ def make_beta_schedule(schedule, n_timestep, linear_start=1e-4, linear_end=2e-2,
     else:
         raise ValueError(f"schedule '{schedule}' unknown.")
     betas = betas.numpy()
-    print("beta:", betas.tolist())
     return betas
 
 

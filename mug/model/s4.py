@@ -36,9 +36,9 @@ try: # Try CUDA extension
     from extensions.cauchy.cauchy import cauchy_mult
     has_cauchy_extension = True
 except:
-    log.warning(
-        "CUDA extension for cauchy multiplication not found. Install by going to extensions/cauchy/ and running `python setup.py install`. This should speed up end-to-end training by 10-50%"
-    )
+    # log.warning(
+    #     "CUDA extension for cauchy multiplication not found. Install by going to extensions/cauchy/ and running `python setup.py install`. This should speed up end-to-end training by 10-50%"
+    # )
     has_cauchy_extension = False
 
 try: # Try pykeops
@@ -134,9 +134,9 @@ try: # Try pykeops
 except ImportError:
     has_pykeops = False
     if not has_cauchy_extension:
-        log.warning(
-            "Falling back on slow Cauchy kernel. Install at least one of pykeops or the CUDA extension for efficiency."
-        )
+        # log.warning(
+        #     "Falling back on slow Cauchy kernel. Install at least one of pykeops or the CUDA extension for efficiency."
+        # )
         def cauchy_naive(v, z, w):
             """
             v, w: (..., N)
@@ -147,9 +147,9 @@ except ImportError:
             return torch.sum(cauchy_matrix, dim=-2)
 
     # Vandermonde functions
-    log.warning(
-        "Falling back on slow Vandermonde kernel. Install pykeops for improved memory efficiency."
-    )
+    # log.warning(
+    #     "Falling back on slow Vandermonde kernel. Install pykeops for improved memory efficiency."
+    # )
     def log_vandermonde(v, x, L):
         """
         v: (..., N)

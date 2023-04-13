@@ -91,7 +91,6 @@ class DDPM(pl.LightningModule):
         assert parameterization in ["eps", "x0",
                                     "recon"], 'currently only supporting "eps", "x0" and "recon"'
         self.parameterization = parameterization
-        print(f"{self.__class__.__name__}: Running in {self.parameterization}-prediction mode")
         self.cond_stage_model = None
         self.clip_denoised = clip_denoised
         self.log_every_t = log_every_t
@@ -158,7 +157,6 @@ class DDPM(pl.LightningModule):
         self.register_buffer('sqrt_alphas_cumprod', to_torch(np.sqrt(alphas_cumprod)))
         self.register_buffer('sqrt_one_minus_alphas_cumprod',
                              to_torch(np.sqrt(1. - alphas_cumprod)))
-        print("sqrt_alphas_cumprod:", self.sqrt_alphas_cumprod.tolist())
         self.register_buffer('log_one_minus_alphas_cumprod', to_torch(np.log(1. - alphas_cumprod)))
         self.register_buffer('sqrt_recip_alphas_cumprod', to_torch(np.sqrt(1. / alphas_cumprod)))
         self.register_buffer('sqrt_recipm1_alphas_cumprod',

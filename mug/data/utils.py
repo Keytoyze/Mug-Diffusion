@@ -43,7 +43,7 @@ def test_timing(time_list, test_bpm, test_offset, div, refine):
     return valid_ratio, valid, cur_bpm, cur_offset
 
 
-def timing(time_list):
+def timing(time_list, verbose=True):
     offset = time_list[0]
 
     best_bpm = None
@@ -64,8 +64,9 @@ def timing(time_list):
             best_valid_ratio = valid_ratio
             best_bpm = cur_bpm
             best_offset = cur_offset
-            print(f"[valid: {valid_ratio} / {len(valid)}] bpm {test_bpm} -> {cur_bpm}, "
-            f"offset {offset} -> {cur_offset}")
+            if verbose:
+                print(f"[valid: {valid_ratio} / {len(valid)}] bpm {test_bpm} -> {cur_bpm}, "
+                f"offset {offset} -> {cur_offset}")
 
         # find the best offset when bpm = best bpm
         gap = 60000 / cur_bpm
@@ -83,8 +84,9 @@ def timing(time_list):
                 best_valid_ratio = valid_ratio
                 best_bpm = cur_bpm
                 best_offset = cur_offset
-                print(f"[valid: {valid_ratio} / {len(valid)}] bpm {best_bpm} -> {cur_bpm}, "
-                f"offset {offset} -> {cur_offset}")
+                if verbose:
+                    print(f"[valid: {valid_ratio} / {len(valid)}] bpm {best_bpm} -> {cur_bpm}, "
+                    f"offset {offset} -> {cur_offset}")
 
     _, valid_8, best_bpm, best_offset = test_timing(time_list, best_bpm, best_offset, div=16,
                                                     refine=False)
@@ -92,10 +94,11 @@ def timing(time_list):
                                                     refine=False)
     valid = np.clip(valid_6 + valid_8, 0, 1)
 
-    print("Test time:", time.time() - st)
-    print(f"Final bpm: {best_bpm}, offset: {best_offset}")
-    print(f"Final valid: {np.sum(valid)} / {len(valid)}")
-    print(f"Invalid: {time_list[valid == 0]}")
+    if verbose:
+        print("Test time:", time.time() - st)
+        print(f"Final bpm: {best_bpm}, offset: {best_offset}")
+        print(f"Final valid: {np.sum(valid)} / {len(valid)}")
+        print(f"Invalid: {time_list[valid == 0]}")
 
     return best_bpm, best_offset
 
@@ -103,7 +106,7 @@ def timing(time_list):
     # rgs.fit(np.asarray(meters).reshape((-1, 1)), times[:i + 1])
 
 
-def gridify(hit_objects):
+def gridify(hit_objects, verbose=True):
     key_count = 4  # TODO
     column_width = int(512 / key_count)
     times = []
@@ -111,7 +114,7 @@ def gridify(hit_objects):
         st, _, _ = parse_hit_objects(line, column_width)
         times.append(st)
     times = np.asarray(times, dtype=np.float32)
-    bpm, offset = timing(times)
+    bpm, offset = timing(times, verbose)
     epsilon = 10
 
     def format_time(t):
@@ -136,7 +139,7 @@ def gridify(hit_objects):
     return new_hit_objects, bpm, offset
 
 
-def remove_intractable_mania_mini_jacks(hit_objects):
+def remove_intractable_mania_mini_jacks(hit_objects, verbose=True):
     key_count = 4  # TODO
     jack_interval = 90
     column_width = int(512 / key_count)
@@ -199,7 +202,8 @@ def remove_intractable_mania_mini_jacks(hit_objects):
                 if abs(n[1] - start_time) >= 10:
                     count_notes_after_it += 1
             if count_notes_after_it == 0:
-                print(f"Ignore: {start_time}, {column}")
+                if verbose:
+                    print(f"Ignore: {start_time}, {column}")
                 continue
 
             # Step 2: try to move the notes to other columns.
@@ -223,7 +227,8 @@ def remove_intractable_mania_mini_jacks(hit_objects):
                     ))
                     if jacks_after_move == 0:
                         success = True
-                        print(f"Move: {try_move_t}, {try_move_src_column} -> {try_move_dst_column}")
+                        if verbose:
+                            print(f"Move: {try_move_t}, {try_move_src_column} -> {try_move_dst_column}")
 
                         elements = new_hit_objects[try_move_index].split(",")
                         elements[0] = str(int(round((try_move_dst_column + 0.5) * column_width)))
@@ -246,16 +251,19 @@ def remove_intractable_mania_mini_jacks(hit_objects):
                                           search_latter=True)
             ) + 1
             if holds_latter > 1 and holds_latter >= holds_previous:
-                print(f"Remove: {start_time} | {column} "
-                      f"due to the holds: {holds_latter} >= {holds_previous}")
+                if verbose:
+                    print(f"Remove: {start_time} | {column} "
+                          f"due to the holds: {holds_latter} >= {holds_previous}")
                 new_hit_objects[i] = None
             elif holds_previous > 1 and holds_previous >= holds_latter:
-                print(f"Remove: {previous_jacks[0][1]} | {column} "
-                      f"due to the holds: {holds_latter} >= {holds_previous}")
+                if verbose:
+                    print(f"Remove: {previous_jacks[0][1]} | {column} "
+                          f"due to the holds: {holds_latter} >= {holds_previous}")
                 new_hit_objects[previous_jacks[0][0]] = None
             else:
-                print(f"Cannot move: {start_time} | {previous_jacks[0][1]}, column = {column}, "
-                      f"holds = {holds_latter} | {holds_previous}")
+                if verbose:
+                    print(f"Cannot move: {start_time} | {previous_jacks[0][1]}, column = {column}, "
+                          f"holds = {holds_latter} | {holds_previous}")
 
     return [x for x in new_hit_objects if x is not None]
 
