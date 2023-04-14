@@ -91,7 +91,6 @@ class DDPM(pl.LightningModule):
         assert parameterization in ["eps", "x0",
                                     "recon"], 'currently only supporting "eps", "x0" and "recon"'
         self.parameterization = parameterization
-        print(f"{self.__class__.__name__}: Running in {self.parameterization}-prediction mode")
         self.cond_stage_model = None
         self.clip_denoised = clip_denoised
         self.log_every_t = log_every_t
@@ -158,7 +157,6 @@ class DDPM(pl.LightningModule):
         self.register_buffer('sqrt_alphas_cumprod', to_torch(np.sqrt(alphas_cumprod)))
         self.register_buffer('sqrt_one_minus_alphas_cumprod',
                              to_torch(np.sqrt(1. - alphas_cumprod)))
-        print("sqrt_alphas_cumprod:", self.sqrt_alphas_cumprod.tolist())
         self.register_buffer('log_one_minus_alphas_cumprod', to_torch(np.log(1. - alphas_cumprod)))
         self.register_buffer('sqrt_recip_alphas_cumprod', to_torch(np.sqrt(1. / alphas_cumprod)))
         self.register_buffer('sqrt_recipm1_alphas_cumprod',
@@ -357,7 +355,8 @@ class DDPM(pl.LightningModule):
 
     def p_losses(self, x_start_distribution, t, batch, noise=None, all_noise=False, generator=None):
         x_start = x_start_distribution.mode()
-        noise = default(noise, lambda: torch.randn(x_start.size(), generator=generator, device=x_start.device))
+        noise = default(noise, lambda: torch.randn(x_start.size(), generator=generator,
+                                                   device=x_start.device))
         if all_noise:
             x_noisy = noise
         else:
@@ -381,7 +380,8 @@ class DDPM(pl.LightningModule):
         if self.parameterization == "recon":
             reconstructions = self.model.decode(model_out)
             loss, loss_dict = self.model.first_stage_model.loss(target, reconstructions,
-                                                               torch.ones_like(batch['valid_flag']))
+                                                                torch.ones_like(
+                                                                    batch['valid_flag']))
             loss_dict = dict((f"{log_prefix}/{k}", v) for k, v in loss_dict.items())
         else:
             # loss = (self.get_loss(model_out, target, mean=False) / (x_start_distribution.var + 0.1)).mean(dim=[1, 2])
@@ -389,8 +389,10 @@ class DDPM(pl.LightningModule):
 
         loss_dict.update({f'{log_prefix}/loss_simple': loss.mean()})
         loss_dict.update({f'{log_prefix}/loss_mae': torch.abs(model_out - target).mean()})
-        loss_dict.update({f'{log_prefix}/loss_mse': torch.nn.functional.mse_loss(target, model_out).mean()})
-        loss_dict.update({f'{log_prefix}/loss_ratio': (torch.abs(model_out - target) / (x_start_distribution.std)).mean()})
+        loss_dict.update(
+            {f'{log_prefix}/loss_mse': torch.nn.functional.mse_loss(target, model_out).mean()})
+        loss_dict.update({f'{log_prefix}/loss_ratio': (
+                    torch.abs(model_out - target) / (x_start_distribution.std)).mean()})
 
         loss_simple = loss.mean() * self.l_simple_weight
 
@@ -407,7 +409,8 @@ class DDPM(pl.LightningModule):
         x = self.model.encode(batch)
         if max_step is None:
             max_step = self.num_timesteps
-        t = torch.randint(min_step, max_step, (x.mode().shape[0],), device=self.device, generator=generator).long()
+        t = torch.randint(min_step, max_step, (x.mode().shape[0],), device=self.device,
+                          generator=generator).long()
         return self.p_losses(x, t, batch, all_noise=all_noise, generator=generator)
 
     def training_step(self, batch, batch_idx):
@@ -421,7 +424,8 @@ class DDPM(pl.LightningModule):
 
         if self.use_scheduler:
             lr = self.optimizers().param_groups[0]['lr']
-            self.log('lr_abs', lr, prog_bar=True, logger=True, on_step=True, on_epoch=False, sync_dist=True)
+            self.log('lr_abs', lr, prog_bar=True, logger=True, on_step=True, on_epoch=False,
+                     sync_dist=True)
 
         return loss
 
@@ -429,9 +433,10 @@ class DDPM(pl.LightningModule):
     def validation_step(self, batch, batch_idx):
         if self.generator is None:
             self.generator = torch.Generator(batch['note'].device)
-        generator = self.generator.manual_seed(hash(str(batch_idx))) 
+        generator = self.generator.manual_seed(hash(str(batch_idx)))
         _, loss_dict = self(batch, generator=generator)
-        self.log_dict(loss_dict, prog_bar=False, logger=True, on_step=False, on_epoch=True, sync_dist=True)
+        self.log_dict(loss_dict, prog_bar=False, logger=True, on_step=False, on_epoch=True,
+                      sync_dist=True)
 
         level = batch_idx % 10
         min_step = int(level / 10 * self.num_timesteps)
@@ -472,14 +477,14 @@ class DDPM(pl.LightningModule):
     def configure_optimizers(self):
         lr = self.learning_rate
         params = []
-            
+
         for n, p in self.model.named_parameters():
             if self.training_keys is not None:
                 requires_grad = False
                 for k in self.training_keys:
                     if self.hit_parameter(n, k):
                         requires_grad = True
-                        
+
                         print(f"Only train: {n}")
                         break
                 p.requires_grad = requires_grad
@@ -506,6 +511,7 @@ class DDPM(pl.LightningModule):
                 }]
             return [opt], scheduler
         return opt
+
 
 def extract_into_tensor(a, t, x_shape):
     b, *_ = t.shape

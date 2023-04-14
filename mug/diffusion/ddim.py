@@ -129,11 +129,10 @@ class DDIMSampler(object):
         intermediates = {'x_inter': [x], 'pred_x0': [x]}
         time_range = reversed(range(0,timesteps)) if ddim_use_original_steps else np.flip(timesteps)
         total_steps = timesteps if ddim_use_original_steps else timesteps.shape[0]
-        print(f"Running DDIM Sampling with {total_steps} timesteps")
 
         if tqdm_class is None:
             tqdm_class = tqdm
-        iterator = tqdm_class(time_range, desc='DDIM Sampler', total=total_steps)
+        iterator = tqdm_class(time_range, desc='Charting, using DDIM Sampler', total=total_steps)
 
         for i, step in enumerate(iterator):
             index = total_steps - i - 1

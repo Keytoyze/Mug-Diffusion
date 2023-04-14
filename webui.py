@@ -1,14 +1,18 @@
-import zipfile
-import os
-import shutil
+import subprocess
 
-import audioread
+print("Loading imports")
+
+import warnings
+import zipfile
+
+warnings.filterwarnings('ignore')
+
+import audioread.ffdec
+
+import os
+
 import eyed3
 import gradio as gr
-import numpy as np
-import requests
-import torch
-import yaml
 from omegaconf import OmegaConf
 from reamber.algorithms.playField import PlayField
 from reamber.algorithms.playField.parts import *
@@ -18,25 +22,12 @@ from mug.data.convertor import save_osu_file, parse_osu_file
 from mug.data.utils import gridify, remove_intractable_mania_mini_jacks
 from mug.diffusion.ddim import DDIMSampler
 from mug.diffusion.diffusion import DDPM
-from mug.util import instantiate_from_config, feature_dict_to_embedding_ids, \
+from mug.util import feature_dict_to_embedding_ids, \
     load_audio_without_cache
-
-# rs:Rank Status (default:Ranked)
-# sr:star rank
-# cj:Chordjack
-# sta:stamina
-# ss:str
-# js:jumpstream
-# hs:handstream
-# jsp:jackspeed
-# tech:technical
-# ln, rc, hb, ln_ratio
-
-theme = gr.themes.Soft().set(
-    block_title_text_size='*text_xxs',
-    checkbox_label_text_size='*text_xxs'
-)
-theme = gr.themes.Soft()
+from mug.diffusion.unet import *
+from mug.firststage.autoencoder import *
+from mug.cond.feature import *
+from mug.cond.wave import *
 
 
 def load_model_from_config(config, ckpt, verbose=False):
@@ -66,25 +57,28 @@ template_path = "data/template.osu"
 output_path = "outputs/beatmaps/"
 sampler = DDIMSampler(model)
 
+
 def getHeight(y, ratio):
     left = 1
     right = y
-    while(left<=right):
+    while (left <= right):
         if left == right:
             return left
-        mid = int((left+right)/2)
-        res = (86*np.ceil(y/mid)-3)/mid
+        mid = int((left + right) / 2)
+        res = (86 * np.ceil(y / mid) - 3) / mid
         if ratio > res:
             right = mid
         elif ratio < res:
-            left = mid+1
+            left = mid + 1
         else:
             return mid
-        
+
+
 ffmpeg_available = audioread.ffdec.available()
-print(f"FFMPEG available: {ffmpeg_available}")
 if not ffmpeg_available:
-    print("WARNING: ffmpeg not found. Please install ffmpeg first, otherwise the audio parsing may fail.")
+    print(
+        "WARNING: ffmpeg not found. Please install ffmpeg first, otherwise the audio parsing may fail.")
+
 
 def generate_feature_dict(audioPath, audioTitle, audioArtist,
                           rss, rs, srs, sr, etts, ett, cjs, cj, cjss, cjsc, stas, sta, stass, stasc,
@@ -111,13 +105,20 @@ def generate_feature_dict(audioPath, audioTitle, audioArtist,
         (techs, 'Technical', tech, techss, techsc)
     ]
     for pattern_switch, pattern_name, pattern_value, pattern_score_switch, pattern_score_value in patterns:
-        add_value_if(pattern_switch, pattern_name.lower(), pattern_value.startswith("enhance"))
+        add_value_if(pattern_switch, pattern_name.lower(), pattern_value.startswith("more"))
         # add_value_if(pattern_switch, pattern_name.lower(), pattern_name)
         add_value_if(pattern_score_switch, pattern_name.lower() + "_ett", pattern_score_value)
 
     if mts:
         feature_dict['ln'] = feature_dict['rc'] = feature_dict['hb'] = 0
-        feature_dict[mapType] = 1
+        if mapType.startswith("Rice"):
+            feature_dict['rc'] = 1
+        elif mapType.startswith("Long Note"):
+            feature_dict['ln'] = 1
+        elif mapType.startswith("Hybrid"):
+            feature_dict['hb'] = 1
+        else:
+            raise ValueError(mapType)
 
     add_value_if(lnrs, 'ln_ratio', lnr)
     return feature_dict
@@ -132,7 +133,6 @@ def parse_feature(batch_size, feature_dicts, feature_yaml, model: DDPM):
     features = []
     for i in range(batch_size):
         cur_dict = feature_dicts
-        print(f"Feature {i}: {cur_dict}")
         features.append(feature_dict_to_embedding_ids(cur_dict, feature_yaml))
     feature = torch.tensor(np.asarray(features), dtype=torch.float32,
                            device=model.device)
@@ -146,6 +146,15 @@ def startMapping(audioPath, audioTitle, audioArtist,
                  lnrs, mapType, lnr, count, step, scale, rm_jacks, auto_snap,
                  progress=gr.Progress()):
     torch.cuda.empty_cache()
+
+    if audioPath is None or not os.path.isfile(audioPath):
+        raise gr.Error("Audio not found!")
+
+    if audioTitle is None or audioTitle.strip() == "":
+        raise gr.Error("Please specify your audio title")
+
+    if audioArtist is None or audioArtist.strip() == "":
+        raise gr.Error("Please specify your audio artist")
 
     try:
 
@@ -171,6 +180,7 @@ def startMapping(audioPath, audioTitle, audioArtist,
                         uc = parse_feature(count, {}, feature_yaml, model)
 
                 elif progress_step == 1:
+                    print(f"Use feature: {feature_dict}")
                     c = parse_feature(count, feature_dict, feature_yaml, model)
 
                 elif progress_step == 2:
@@ -188,19 +198,18 @@ def startMapping(audioPath, audioTitle, audioArtist,
 
                     audio_map_length_ratio = dataset.max_audio_frame // model.z_length  # 64
                     test_map_length = t / audio_map_length_ratio
-                    test_map_length = (int(test_map_length / 32) + 1) * 32 # ensure the multiple of 32
+                    test_map_length = (int(test_map_length / 32) + 1) * 32  # ensure the multiple
                     test_audio_length = test_map_length * audio_map_length_ratio
                     dataset.max_audio_frame = test_audio_length
                     model.z_length = test_map_length
-
-                    print(test_audio_length, test_map_length)
 
                     # TODO: insert transformer mask
                     # padding or trunc audio to max_audio_frame
                     if t < dataset.max_audio_frame:
                         audio = np.concatenate([
                             audio,
-                            np.zeros((dataset.n_mels, dataset.max_audio_frame - t), dtype=np.float32)
+                            np.zeros((dataset.n_mels, dataset.max_audio_frame - t),
+                                     dtype=np.float32)
                         ], axis=1)
                     elif t > dataset.max_audio_frame:
                         audio = audio[:, :dataset.max_audio_frame]
@@ -246,37 +255,49 @@ def startMapping(audioPath, audioTitle, audioArtist,
 
             previews = []
 
-            for i, x_sample in enumerate(progress.tqdm(x_samples_ddim, desc='Post process charts')):
-                convertor_params = convertor_params.copy()
-                convertor_params["from_logits"] = True
-                _, beatmap_meta = parse_osu_file(template_path, convertor_params)
+            convertor_params = convertor_params.copy()
+            convertor_params["from_logits"] = True
+            _, beatmap_meta = parse_osu_file(template_path, convertor_params)
+            output_name = f"audio.ogg"
+
+            proc = subprocess.Popen(['ffmpeg', '-hide_banner', '-loglevel', 'error',
+                                     '-i', audioPath, '-c:a', 'libvorbis',
+                                     os.path.join(save_dir, output_name)
+                                     ])
+            proc.wait()
+            if proc.returncode != 0:
+                print("WARNING: cannot convert to ogg. Copy instead.")
                 output_name = f"audio{os.path.splitext(audioPath)[-1]}"
                 shutil.copyfile(audioPath, os.path.join(save_dir, output_name))
-                version = f"AI v{i + 1} ({config.version})"
-                creator = "MuG Diffusion"
-                file_name = f"{audioArtist} - {audioTitle} ({creator}) [{version}].osu".replace("/", "")
+
+            for i, x_sample in enumerate(progress.tqdm(x_samples_ddim, desc='Post process charts')):
+                version = f"AI v{i + 1}"
+                creator = f"MuG Diffusion v{config.version}"
+                file_name = f"{audioArtist} - {audioTitle} ({creator}) [{version}].osu".replace("/",
+                                                                                                "")
                 file_path = os.path.join(save_dir, file_name)
 
                 save_osu_file(beatmap_meta, x_sample,
                               path=file_path,
                               override={
-                                  "Creator": f"{creator} v{config.version}",
+                                  "Creator": creator,
                                   "Version": version,
                                   "AudioFilename": output_name,
                                   "Title": audioTitle,
                                   "TitleUnicode": audioTitle,
                                   "Artist": audioArtist,
                                   "ArtistUnicode": audioArtist,
+                                  "AIMode": creator
                               }, gridify=custom_gridify)
 
                 # reamber generate example
                 m = OsuMap.read_file(file_path)
                 pf = (
-                        PlayField(m=m, duration_per_px=5, padding=40) + 
-                        PFDrawBpm() + 
-                        PFDrawBeatLines() + 
-                        PFDrawColumnLines() + 
-                        PFDrawNotes() + 
+                        PlayField(m=m, duration_per_px=5, padding=40) +
+                        PFDrawBpm() +
+                        PFDrawBeatLines() +
+                        PFDrawColumnLines() +
+                        PFDrawNotes() +
                         PFDrawOffsets()
                 )
                 originalHeight = pf.export().height
@@ -293,6 +314,9 @@ def startMapping(audioPath, audioTitle, audioArtist,
         raise gr.Error("Your GPU runs out of memory! "
                        "Please reopen MugDiffusion and try to reduce the Sample count, "
                        "or shrink the audio length. ")
+    except (OSError, FileNotFoundError) as e:
+        raise gr.Error(f"Your audio title or artist may contain strange characters that cannot "
+                       f"serve as a file path. Reason: {e} ")
 
     return [
         gr.update(value=previews, visible=True),
@@ -301,7 +325,14 @@ def startMapping(audioPath, audioTitle, audioArtist,
 
 
 if __name__ == "__main__":
-    with gr.Blocks() as webui:
+
+    with gr.Blocks(title="Mug Diffusion") as webui:
+
+        gr.Markdown(
+            "<h1 style='text-align: center; margin-bottom: 1rem'>"
+            + "Mug Diffusion: charting AI for Rhythm Games (VSRG 4K for now)"
+            + "</h1>"
+        )
 
         with gr.Row():
             with gr.Column(scale=1):
@@ -386,15 +417,11 @@ if __name__ == "__main__":
                     auto_snap = gr.Checkbox(label="snapping to grids automatically",
                                             info="recommend when there are no bpm changes",
                                             value=True)
-                    # aftergen = gr.CheckboxGroup(
-                    #     ['remove intractable mini jacks (recommend when generating stream charts)',
-                    #      'snapping to grids automatically (recommend when there are no bpm changes)'],
-                    #     show_label=False)
 
                 with gr.Accordion("Model configurations", open=True):
                     count = gr.Slider(1, 16, value=4.0, label="Sample count", info="number of maps",
                                       step=1.0)
-                    step = gr.Slider(100, 1000, value=200, label="Step",
+                    step = gr.Slider(10, 500, value=200, label="Step",
                                      info="step of diffusion process", step=1.0)
                     scale = gr.Slider(1, 30, value=5.0, label="CFG scale",
                                       info="prompts matching degree")
@@ -420,8 +447,8 @@ if __name__ == "__main__":
                             cj_switch = gr.Checkbox(label="chordjack")
                             cj_score_switch = gr.Checkbox(label="chordjack MSD")
                         with gr.Column(scale=3, min_width=100):
-                            cj = gr.Radio(['enhance chordjack', 'inhibit chordjack'],
-                                          value='enhance chordjack',
+                            cj = gr.Radio(['more chordjack', 'less chordjack'],
+                                          value='more chordjack',
                                           visible=False, show_label=False)
                             cj_score = gr.Slider(5, 35, value=17, label="chordjack MSD:",
                                                  visible=False)
@@ -443,8 +470,8 @@ if __name__ == "__main__":
                             sta_switch = gr.Checkbox(label="stamina")
                             sta_score_switch = gr.Checkbox(label="stamina MSD")
                         with gr.Column(scale=3, min_width=100):
-                            sta = gr.Radio(['enhance stamina', 'inhibit stamina'],
-                                           value='enhance stamina', \
+                            sta = gr.Radio(['more stamina', 'less stamina'],
+                                           value='more stamina', \
                                            visible=False, show_label=False)
                             sta_score = gr.Slider(5, 35, value=17, label="stamina MSD:",
                                                   visible=False)
@@ -466,8 +493,8 @@ if __name__ == "__main__":
                             ss_switch = gr.Checkbox(label="stream")
                             ss_score_switch = gr.Checkbox(label="stream MSD")
                         with gr.Column(scale=3, min_width=100):
-                            ss = gr.Radio(['enhance stream', 'inhibit stream'],
-                                          value='enhance stream',
+                            ss = gr.Radio(['more stream', 'less stream'],
+                                          value='more stream',
                                           visible=False, show_label=False)
                             ss_score = gr.Slider(5, 35, value=17, label="stream MSD:",
                                                  visible=False)
@@ -489,8 +516,8 @@ if __name__ == "__main__":
                             js_switch = gr.Checkbox(label="jumpstream")
                             js_score_switch = gr.Checkbox(label="jumpstream MSD")
                         with gr.Column(scale=3, min_width=100):
-                            js = gr.Radio(['enhance jumpstream', 'inhibit jumpstream'],
-                                          value='enhance jumpstream',
+                            js = gr.Radio(['more jumpstream', 'less jumpstream'],
+                                          value='more jumpstream',
                                           visible=False, show_label=False)
                             js_score = gr.Slider(5, 35, value=17, label="jumpstream MSD:",
                                                  visible=False)
@@ -512,8 +539,8 @@ if __name__ == "__main__":
                             hs_switch = gr.Checkbox(label="handsteam")
                             hs_score_switch = gr.Checkbox(label="handstream MSD")
                         with gr.Column(scale=3, min_width=100):
-                            hs = gr.Radio(['enhance handstream', 'inhibit handsrteam'],
-                                          value='enhance handstream',
+                            hs = gr.Radio(['more handstream', 'less handsrteam'],
+                                          value='more handstream',
                                           visible=False, show_label=False)
                             hs_score = gr.Slider(5, 35, value=17, label="handsteam MSD:",
                                                  visible=False)
@@ -535,8 +562,8 @@ if __name__ == "__main__":
                             jsp_switch = gr.Checkbox(label="jackspeed")
                             jsp_score_switch = gr.Checkbox(label="jackspeed MSD")
                         with gr.Column(scale=3, min_width=100):
-                            jsp = gr.Radio(['enhance jackspeed', 'inhibit jackspeed'],
-                                           value='enhance jackspeed',
+                            jsp = gr.Radio(['more jackspeed', 'less jackspeed'],
+                                           value='more jackspeed',
                                            visible=False, show_label=False)
                             jsp_score = gr.Slider(5, 35, value=17, label="jackspeed MSD:",
                                                   visible=False)
@@ -558,8 +585,8 @@ if __name__ == "__main__":
                             tech_switch = gr.Checkbox(label="technical")
                             tech_score_switch = gr.Checkbox(label="technical MSD")
                         with gr.Column(scale=3, min_width=100):
-                            tech = gr.Radio(['enhance technical', 'inhibit technical'],
-                                            value='enhance technical',
+                            tech = gr.Radio(['more technical', 'less technical'],
+                                            value='more technical',
                                             visible=False, show_label=False)
                             tech_score = gr.Slider(5, 35, value=17, label="technical MSD:",
                                                    visible=False)
@@ -589,21 +616,9 @@ if __name__ == "__main__":
         )
         out_preview.style(object_fit='fill')
         out_file = gr.File(label='Output file', visible=False, interactive=False)
-        # out.style(preview=True)
 
-        # def displayWindow(num):
-        #    return [gr.update(visible=True) for i in range(num)] + [gr.update(visible=False) for j in range(16-num)]
-        # btn.click(displayWindow, count, out)
         btn.click(lambda: gr.update(visible=False), None, out_file)
-        btn.click(startMapping, inp, [out_preview, out_file])
-
-        # btn.click(display, t, test)
-
-    # webui.css('lbox { font-size:20px; }')
+        btn.click(startMapping, inp, [out_preview, out_file], api_name='generate')
 
     webui.queue(10).launch(share=False)
-'''
-    with gr.Blocks() as demo:
-        HTML = gr.HTML(value=_html)
-    #demo.launch()
-'''
+

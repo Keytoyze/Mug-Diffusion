@@ -8,3 +8,7 @@ result.pdf
 /outputs/
 /configs/mapping_config
 /models/ckpt
+*.exe
+build
+dist
+*.spec

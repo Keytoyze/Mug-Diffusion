@@ -23,20 +23,21 @@ Title:
 TitleUnicode:
 Artist:
 ArtistUnicode:
-Creator: AI
-Version:Revitalization [1.1x Rate]
+AIMode:
+Creator:
+Version:
 Source:
 Tags:
 BeatmapID: 0
 BeatmapSetID: -1
 
 [Difficulty]
-HPDrainRate:8
-CircleSize:4
-OverallDifficulty:8
-ApproachRate:5
-SliderMultiplier:1.4
-SliderTickRate:1
+HPDrainRate: 8
+CircleSize: 4
+OverallDifficulty: 8
+ApproachRate: 5
+SliderMultiplier: 1.4
+SliderTickRate: 1
 
 [Events]
 //Background and Video events
