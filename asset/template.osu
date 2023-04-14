@@ -41,7 +41,7 @@ SliderTickRate: 1
 
 [Events]
 //Background and Video events
-0,0,"",0,0
+0,0,"bg.jpg",0,0
 //Break Periods
 //Storyboard Layer 0 (Background)
 //Storyboard Layer 1 (Fail)

@@ -4,6 +4,7 @@ print("Loading imports")
 
 import warnings
 import zipfile
+import base64
 
 warnings.filterwarnings('ignore')
 
@@ -53,7 +54,7 @@ config = OmegaConf.load("models/ckpt/model.yaml")
 model = load_model_from_config(config, "models/ckpt/model.ckpt")
 device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
 model = model.to(device)
-template_path = "data/template.osu"
+template_path = "asset/template.osu"
 output_path = "outputs/beatmaps/"
 sampler = DDIMSampler(model)
 
@@ -289,6 +290,7 @@ def startMapping(audioPath, audioTitle, audioArtist,
                                   "ArtistUnicode": audioArtist,
                                   "AIMode": creator
                               }, gridify=custom_gridify)
+                shutil.copyfile("asset/bg.jpg", os.path.join(save_dir, "bg.jpg"))
 
                 # reamber generate example
                 m = OsuMap.read_file(file_path)
@@ -326,12 +328,18 @@ def startMapping(audioPath, audioTitle, audioArtist,
 
 if __name__ == "__main__":
 
-    with gr.Blocks(title="Mug Diffusion") as webui:
+    with gr.Blocks(title="MuG Diffusion") as webui:
 
-        gr.Markdown(
+        with open("asset/logo.png", "rb") as logo_file:
+            encoded_string = base64.b64encode(logo_file.read()).decode('utf-8')
+
+        gr.HTML(
+            f'<div style="text-align: center; margin-bottom: 1rem">'
+            f'<img src="data:image/png;base64,{encoded_string}" '
+            f'style="width: 128px; height: 128px; margin: auto;"></img></div>'
             "<h1 style='text-align: center; margin-bottom: 1rem'>"
-            + "Mug Diffusion: charting AI for Rhythm Games (VSRG 4K for now)"
-            + "</h1>"
+            "MuG Diffusion: High-quality and Controllable Charting AI for Rhythm Games"
+            "</h1>"
         )
 
         with gr.Row():
@@ -350,7 +358,10 @@ if __name__ == "__main__":
                     audio_artist = audio_file.tag.artist
                     audio_title = audio_file.tag.title
                 except:
-                    audio_title = x['name'].split('.')[0]
+                    try:
+                        audio_title = x['name'].split('.')[0]
+                    except:
+                        audio_title = ""
                     audio_artist = ""
                 return [
                     gr.update(value=audio_title),
@@ -361,264 +372,265 @@ if __name__ == "__main__":
             audioPath.change(on_change_audio, inputs=audioPath, outputs=[audioTitle, audioArtist],
                              preprocess=False, postprocess=False)
 
-        with gr.Row():
-
-            with gr.Column(scale=1):
-                with gr.Accordion("Diffculty", open=True):
-                    with gr.Row():
-                        with gr.Column(scale=1, min_width=100):
-                            sr_switch = gr.Checkbox(label="star rating (osu!)", value=True)
-                            ett_switch = gr.Checkbox(label="MSD score (Etterna)")
-                        with gr.Column(scale=3, min_width=100):
-                            sr = gr.Slider(1, 8, value=4, label="star rating (osu!)")
-                            ett = gr.Slider(5, 35, value=20, label="MSD (Etterna)", visible=False)
-
-
-                    def etts_switch(evt: gr.SelectData):
-                        return gr.update(visible=evt.selected)
-
-
-                    def srs_switch(evt: gr.SelectData):
-                        return gr.update(visible=evt.selected)
-
-
-                    ett_switch.select(etts_switch, None, ett)
-                    sr_switch.select(srs_switch, None, sr)
-
-                with gr.Accordion("Rice & long note", open=True):
-                    with gr.Row():
-                        with gr.Column(scale=1, min_width=100):
-                            maptype_switch = gr.Checkbox(label="map type")
-                            lnr_switch = gr.Checkbox(label="ln ratio")
-                        with gr.Column(scale=3, min_width=100):
-                            mapType = gr.Radio(["Rice (LN < 10%)", "Long Note (LN > 40%)",
-                                                "Hybrid (10% < LN < 70%)"],
-                                               show_label=False, value="Rice (LN < 10%)",
-                                               visible=False)
-                            lnr = gr.Slider(0, 1, value=0.0, label="ln ratio", visible=False,
-                                            info="ln ratio of the map, 0 for rice only, 1 for FULL LN")
-
-
-                    def mts_switch(evt: gr.SelectData):
-                        return gr.update(visible=evt.selected)
-
-
-                    def lnrs_switch(evt: gr.SelectData):
-                        return gr.update(visible=evt.selected)
-
-
-                    maptype_switch.select(mts_switch, None, mapType)
-                    lnr_switch.select(lnrs_switch, None, lnr)
-
-                with gr.Accordion("Special", open=True):
-                    rm_jacks = gr.Checkbox(label="remove intractable mini jacks",
-                                           info="recommend when generating stream patterns",
-                                           value=True)
-                    auto_snap = gr.Checkbox(label="snapping to grids automatically",
-                                            info="recommend when there are no bpm changes",
-                                            value=True)
-
-                with gr.Accordion("Model configurations", open=True):
-                    count = gr.Slider(1, 16, value=4.0, label="Sample count", info="number of maps",
-                                      step=1.0)
-                    step = gr.Slider(10, 500, value=200, label="Step",
-                                     info="step of diffusion process", step=1.0)
-                    scale = gr.Slider(1, 30, value=5.0, label="CFG scale",
-                                      info="prompts matching degree")
-
-            with gr.Column(scale=1):
-                with gr.Accordion("Pattern", open=True):
-                    with gr.Row():
-                        with gr.Column(scale=1, min_width=100):
-                            rs_switch = gr.Checkbox(label="style", value=True, elem_id="lbox")
-                        with gr.Column(scale=3, min_width=100):
-                            rs = gr.Radio(['ranked/stable', 'loved', 'graveyard'], \
-                                          value='ranked/stable', show_label=False)
-
-
-                    def rss_switch(evt: gr.SelectData):
-                        return gr.update(visible=evt.selected)
-
-
-                    rs_switch.select(rss_switch, None, rs)
-
-                    with gr.Row():
-                        with gr.Column(scale=1, min_width=100):
-                            cj_switch = gr.Checkbox(label="chordjack")
-                            cj_score_switch = gr.Checkbox(label="chordjack MSD")
-                        with gr.Column(scale=3, min_width=100):
-                            cj = gr.Radio(['more chordjack', 'less chordjack'],
-                                          value='more chordjack',
-                                          visible=False, show_label=False)
-                            cj_score = gr.Slider(5, 35, value=17, label="chordjack MSD:",
-                                                 visible=False)
-
-
-                    def cje_switch(evt: gr.SelectData):
-                        return gr.update(visible=evt.selected)
-
-
-                    def cjss_switch(evt: gr.SelectData):
-                        return gr.update(visible=evt.selected)
-
-
-                    cj_switch.select(cje_switch, None, cj)
-                    cj_score_switch.select(cjss_switch, None, cj_score)
-
-                    with gr.Row():
-                        with gr.Column(scale=1, min_width=100):
-                            sta_switch = gr.Checkbox(label="stamina")
-                            sta_score_switch = gr.Checkbox(label="stamina MSD")
-                        with gr.Column(scale=3, min_width=100):
-                            sta = gr.Radio(['more stamina', 'less stamina'],
-                                           value='more stamina', \
-                                           visible=False, show_label=False)
-                            sta_score = gr.Slider(5, 35, value=17, label="stamina MSD:",
-                                                  visible=False)
-
-
-                    def stae_switch(evt: gr.SelectData):
-                        return gr.update(visible=evt.selected)
-
-
-                    def stass_switch(evt: gr.SelectData):
-                        return gr.update(visible=evt.selected)
-
-
-                    sta_switch.select(stae_switch, None, sta)
-                    sta_score_switch.select(stass_switch, None, sta_score)
-
-                    with gr.Row():
-                        with gr.Column(scale=1, min_width=100):
-                            ss_switch = gr.Checkbox(label="stream")
-                            ss_score_switch = gr.Checkbox(label="stream MSD")
-                        with gr.Column(scale=3, min_width=100):
-                            ss = gr.Radio(['more stream', 'less stream'],
-                                          value='more stream',
-                                          visible=False, show_label=False)
-                            ss_score = gr.Slider(5, 35, value=17, label="stream MSD:",
-                                                 visible=False)
-
-
-                    def sse_switch(evt: gr.SelectData):
-                        return gr.update(visible=evt.selected)
-
-
-                    def ssss_switch(evt: gr.SelectData):
-                        return gr.update(visible=evt.selected)
-
-
-                    ss_switch.select(sse_switch, None, ss)
-                    ss_score_switch.select(ssss_switch, None, ss_score)
-
-                    with gr.Row():
-                        with gr.Column(scale=1, min_width=100):
-                            js_switch = gr.Checkbox(label="jumpstream")
-                            js_score_switch = gr.Checkbox(label="jumpstream MSD")
-                        with gr.Column(scale=3, min_width=100):
-                            js = gr.Radio(['more jumpstream', 'less jumpstream'],
-                                          value='more jumpstream',
-                                          visible=False, show_label=False)
-                            js_score = gr.Slider(5, 35, value=17, label="jumpstream MSD:",
-                                                 visible=False)
-
-
-                    def jse_switch(evt: gr.SelectData):
-                        return gr.update(visible=evt.selected)
-
-
-                    def jsss_switch(evt: gr.SelectData):
-                        return gr.update(visible=evt.selected)
-
-
-                    js_switch.select(jse_switch, None, js)
-                    js_score_switch.select(jsss_switch, None, js_score)
-
-                    with gr.Row():
-                        with gr.Column(scale=1, min_width=100):
-                            hs_switch = gr.Checkbox(label="handsteam")
-                            hs_score_switch = gr.Checkbox(label="handstream MSD")
-                        with gr.Column(scale=3, min_width=100):
-                            hs = gr.Radio(['more handstream', 'less handsrteam'],
-                                          value='more handstream',
-                                          visible=False, show_label=False)
-                            hs_score = gr.Slider(5, 35, value=17, label="handsteam MSD:",
-                                                 visible=False)
-
-
-                    def hse_switch(evt: gr.SelectData):
-                        return gr.update(visible=evt.selected)
-
-
-                    def hsss_switch(evt: gr.SelectData):
-                        return gr.update(visible=evt.selected)
-
-
-                    hs_switch.select(hse_switch, None, hs)
-                    hs_score_switch.select(hsss_switch, None, hs_score)
-
-                    with gr.Row():
-                        with gr.Column(scale=1, min_width=100):
-                            jsp_switch = gr.Checkbox(label="jackspeed")
-                            jsp_score_switch = gr.Checkbox(label="jackspeed MSD")
-                        with gr.Column(scale=3, min_width=100):
-                            jsp = gr.Radio(['more jackspeed', 'less jackspeed'],
-                                           value='more jackspeed',
-                                           visible=False, show_label=False)
-                            jsp_score = gr.Slider(5, 35, value=17, label="jackspeed MSD:",
-                                                  visible=False)
-
-
-                    def jspe_switch(evt: gr.SelectData):
-                        return gr.update(visible=evt.selected)
-
-
-                    def jspss_switch(evt: gr.SelectData):
-                        return gr.update(visible=evt.selected)
-
-
-                    jsp_switch.select(jspe_switch, None, jsp)
-                    jsp_score_switch.select(jspss_switch, None, jsp_score)
-
-                    with gr.Row():
-                        with gr.Column(scale=1, min_width=100):
-                            tech_switch = gr.Checkbox(label="technical")
-                            tech_score_switch = gr.Checkbox(label="technical MSD")
-                        with gr.Column(scale=3, min_width=100):
-                            tech = gr.Radio(['more technical', 'less technical'],
-                                            value='more technical',
-                                            visible=False, show_label=False)
-                            tech_score = gr.Slider(5, 35, value=17, label="technical MSD:",
+        with gr.Tab("Vertical Scroll Rhythm Game (4K)"):
+            with gr.Row():
+
+                with gr.Column(scale=1):
+                    with gr.Accordion("Diffculty", open=True):
+                        with gr.Row():
+                            with gr.Column(scale=1, min_width=100):
+                                sr_switch = gr.Checkbox(label="star rating (osu!)", value=True)
+                                ett_switch = gr.Checkbox(label="MSD score (Etterna)")
+                            with gr.Column(scale=3, min_width=100):
+                                sr = gr.Slider(1, 8, value=4, label="star rating (osu!)")
+                                ett = gr.Slider(5, 35, value=20, label="MSD (Etterna)", visible=False)
+
+
+                        def etts_switch(evt: gr.SelectData):
+                            return gr.update(visible=evt.selected)
+
+
+                        def srs_switch(evt: gr.SelectData):
+                            return gr.update(visible=evt.selected)
+
+
+                        ett_switch.select(etts_switch, None, ett)
+                        sr_switch.select(srs_switch, None, sr)
+
+                    with gr.Accordion("Rice & long note", open=True):
+                        with gr.Row():
+                            with gr.Column(scale=1, min_width=100):
+                                maptype_switch = gr.Checkbox(label="map type")
+                                lnr_switch = gr.Checkbox(label="ln ratio")
+                            with gr.Column(scale=3, min_width=100):
+                                mapType = gr.Radio(["Rice (LN < 10%)", "Long Note (LN > 40%)",
+                                                    "Hybrid (10% < LN < 70%)"],
+                                                   show_label=False, value="Rice (LN < 10%)",
                                                    visible=False)
+                                lnr = gr.Slider(0, 1, value=0.0, label="ln ratio", visible=False,
+                                                info="ln ratio of the map, 0 for rice only, 1 for FULL LN")
 
 
-                    def teche_switch(evt: gr.SelectData):
-                        return gr.update(visible=evt.selected)
+                        def mts_switch(evt: gr.SelectData):
+                            return gr.update(visible=evt.selected)
 
 
-                    def techss_switch(evt: gr.SelectData):
-                        return gr.update(visible=evt.selected)
+                        def lnrs_switch(evt: gr.SelectData):
+                            return gr.update(visible=evt.selected)
 
 
-                    tech_switch.select(teche_switch, None, tech)
-                    tech_score_switch.select(techss_switch, None, tech_score)
+                        maptype_switch.select(mts_switch, None, mapType)
+                        lnr_switch.select(lnrs_switch, None, lnr)
 
-        inp = [audioPath, audioTitle, audioArtist, rs_switch, rs, sr_switch, sr, ett_switch, ett,
-               cj_switch, cj, cj_score_switch, cj_score, sta_switch, sta, \
-               sta_score_switch, sta_score, ss_switch, ss, ss_score_switch, ss_score, js_switch, js,
-               js_score_switch, js_score, hs_switch, hs, \
-               hs_score_switch, hs_score, jsp_switch, jsp, jsp_score_switch, jsp_score, tech_switch,
-               tech, tech_score_switch, tech_score, \
-               maptype_switch, lnr_switch, mapType, lnr, count, step, scale, rm_jacks, auto_snap]
-        btn = gr.Button('Start Generation', variant='primary')
-        out_preview = gr.Gallery(label="Chart overview", visible=True, elem_id='output').style(
-            preview=True
-        )
-        out_preview.style(object_fit='fill')
-        out_file = gr.File(label='Output file', visible=False, interactive=False)
+                    with gr.Accordion("Special", open=True):
+                        rm_jacks = gr.Checkbox(label="remove intractable mini jacks",
+                                               info="recommend when generating stream patterns",
+                                               value=True)
+                        auto_snap = gr.Checkbox(label="snapping to grids automatically",
+                                                info="recommend when there are no bpm changes",
+                                                value=True)
 
-        btn.click(lambda: gr.update(visible=False), None, out_file)
-        btn.click(startMapping, inp, [out_preview, out_file], api_name='generate')
+                    with gr.Accordion("Model configurations", open=True):
+                        count = gr.Slider(1, 16, value=4.0, label="Sample count", info="number of maps",
+                                          step=1.0)
+                        step = gr.Slider(10, 500, value=200, label="Step",
+                                         info="step of diffusion process", step=1.0)
+                        scale = gr.Slider(1, 30, value=5.0, label="CFG scale",
+                                          info="prompts matching degree")
 
-    webui.queue(10).launch(share=False)
+                with gr.Column(scale=1):
+                    with gr.Accordion("Pattern", open=True):
+                        with gr.Row():
+                            with gr.Column(scale=1, min_width=100):
+                                rs_switch = gr.Checkbox(label="style", value=True, elem_id="lbox")
+                            with gr.Column(scale=3, min_width=100):
+                                rs = gr.Radio(['ranked/stable', 'loved', 'graveyard'], \
+                                              value='ranked/stable', show_label=False)
+
+
+                        def rss_switch(evt: gr.SelectData):
+                            return gr.update(visible=evt.selected)
+
+
+                        rs_switch.select(rss_switch, None, rs)
+
+                        with gr.Row():
+                            with gr.Column(scale=1, min_width=100):
+                                cj_switch = gr.Checkbox(label="chordjack")
+                                cj_score_switch = gr.Checkbox(label="chordjack MSD")
+                            with gr.Column(scale=3, min_width=100):
+                                cj = gr.Radio(['more chordjack', 'less chordjack'],
+                                              value='more chordjack',
+                                              visible=False, show_label=False)
+                                cj_score = gr.Slider(5, 35, value=17, label="chordjack MSD:",
+                                                     visible=False)
+
+
+                        def cje_switch(evt: gr.SelectData):
+                            return gr.update(visible=evt.selected)
+
+
+                        def cjss_switch(evt: gr.SelectData):
+                            return gr.update(visible=evt.selected)
+
+
+                        cj_switch.select(cje_switch, None, cj)
+                        cj_score_switch.select(cjss_switch, None, cj_score)
+
+                        with gr.Row():
+                            with gr.Column(scale=1, min_width=100):
+                                sta_switch = gr.Checkbox(label="stamina")
+                                sta_score_switch = gr.Checkbox(label="stamina MSD")
+                            with gr.Column(scale=3, min_width=100):
+                                sta = gr.Radio(['more stamina', 'less stamina'],
+                                               value='more stamina', \
+                                               visible=False, show_label=False)
+                                sta_score = gr.Slider(5, 35, value=17, label="stamina MSD:",
+                                                      visible=False)
+
+
+                        def stae_switch(evt: gr.SelectData):
+                            return gr.update(visible=evt.selected)
+
+
+                        def stass_switch(evt: gr.SelectData):
+                            return gr.update(visible=evt.selected)
+
+
+                        sta_switch.select(stae_switch, None, sta)
+                        sta_score_switch.select(stass_switch, None, sta_score)
+
+                        with gr.Row():
+                            with gr.Column(scale=1, min_width=100):
+                                ss_switch = gr.Checkbox(label="stream")
+                                ss_score_switch = gr.Checkbox(label="stream MSD")
+                            with gr.Column(scale=3, min_width=100):
+                                ss = gr.Radio(['more stream', 'less stream'],
+                                              value='more stream',
+                                              visible=False, show_label=False)
+                                ss_score = gr.Slider(5, 35, value=17, label="stream MSD:",
+                                                     visible=False)
+
+
+                        def sse_switch(evt: gr.SelectData):
+                            return gr.update(visible=evt.selected)
+
+
+                        def ssss_switch(evt: gr.SelectData):
+                            return gr.update(visible=evt.selected)
+
+
+                        ss_switch.select(sse_switch, None, ss)
+                        ss_score_switch.select(ssss_switch, None, ss_score)
+
+                        with gr.Row():
+                            with gr.Column(scale=1, min_width=100):
+                                js_switch = gr.Checkbox(label="jumpstream")
+                                js_score_switch = gr.Checkbox(label="jumpstream MSD")
+                            with gr.Column(scale=3, min_width=100):
+                                js = gr.Radio(['more jumpstream', 'less jumpstream'],
+                                              value='more jumpstream',
+                                              visible=False, show_label=False)
+                                js_score = gr.Slider(5, 35, value=17, label="jumpstream MSD:",
+                                                     visible=False)
+
+
+                        def jse_switch(evt: gr.SelectData):
+                            return gr.update(visible=evt.selected)
+
+
+                        def jsss_switch(evt: gr.SelectData):
+                            return gr.update(visible=evt.selected)
+
+
+                        js_switch.select(jse_switch, None, js)
+                        js_score_switch.select(jsss_switch, None, js_score)
+
+                        with gr.Row():
+                            with gr.Column(scale=1, min_width=100):
+                                hs_switch = gr.Checkbox(label="handsteam")
+                                hs_score_switch = gr.Checkbox(label="handstream MSD")
+                            with gr.Column(scale=3, min_width=100):
+                                hs = gr.Radio(['more handstream', 'less handsrteam'],
+                                              value='more handstream',
+                                              visible=False, show_label=False)
+                                hs_score = gr.Slider(5, 35, value=17, label="handsteam MSD:",
+                                                     visible=False)
+
+
+                        def hse_switch(evt: gr.SelectData):
+                            return gr.update(visible=evt.selected)
+
+
+                        def hsss_switch(evt: gr.SelectData):
+                            return gr.update(visible=evt.selected)
+
+
+                        hs_switch.select(hse_switch, None, hs)
+                        hs_score_switch.select(hsss_switch, None, hs_score)
+
+                        with gr.Row():
+                            with gr.Column(scale=1, min_width=100):
+                                jsp_switch = gr.Checkbox(label="jackspeed")
+                                jsp_score_switch = gr.Checkbox(label="jackspeed MSD")
+                            with gr.Column(scale=3, min_width=100):
+                                jsp = gr.Radio(['more jackspeed', 'less jackspeed'],
+                                               value='more jackspeed',
+                                               visible=False, show_label=False)
+                                jsp_score = gr.Slider(5, 35, value=17, label="jackspeed MSD:",
+                                                      visible=False)
+
+
+                        def jspe_switch(evt: gr.SelectData):
+                            return gr.update(visible=evt.selected)
+
+
+                        def jspss_switch(evt: gr.SelectData):
+                            return gr.update(visible=evt.selected)
+
+
+                        jsp_switch.select(jspe_switch, None, jsp)
+                        jsp_score_switch.select(jspss_switch, None, jsp_score)
+
+                        with gr.Row():
+                            with gr.Column(scale=1, min_width=100):
+                                tech_switch = gr.Checkbox(label="technical")
+                                tech_score_switch = gr.Checkbox(label="technical MSD")
+                            with gr.Column(scale=3, min_width=100):
+                                tech = gr.Radio(['more technical', 'less technical'],
+                                                value='more technical',
+                                                visible=False, show_label=False)
+                                tech_score = gr.Slider(5, 35, value=17, label="technical MSD:",
+                                                       visible=False)
+
+
+                        def teche_switch(evt: gr.SelectData):
+                            return gr.update(visible=evt.selected)
+
+
+                        def techss_switch(evt: gr.SelectData):
+                            return gr.update(visible=evt.selected)
+
+
+                        tech_switch.select(teche_switch, None, tech)
+                        tech_score_switch.select(techss_switch, None, tech_score)
+
+            inp = [audioPath, audioTitle, audioArtist, rs_switch, rs, sr_switch, sr, ett_switch, ett,
+                   cj_switch, cj, cj_score_switch, cj_score, sta_switch, sta, \
+                   sta_score_switch, sta_score, ss_switch, ss, ss_score_switch, ss_score, js_switch, js,
+                   js_score_switch, js_score, hs_switch, hs, \
+                   hs_score_switch, hs_score, jsp_switch, jsp, jsp_score_switch, jsp_score, tech_switch,
+                   tech, tech_score_switch, tech_score, \
+                   maptype_switch, lnr_switch, mapType, lnr, count, step, scale, rm_jacks, auto_snap]
+            btn = gr.Button('Start Generation', variant='primary')
+            out_preview = gr.Gallery(label="Chart overview", visible=True, elem_id='output').style(
+                preview=True
+            )
+            out_preview.style(object_fit='fill')
+            out_file = gr.File(label='Output file', visible=False, interactive=False)
+
+            btn.click(lambda: gr.update(visible=False), None, out_file)
+            btn.click(startMapping, inp, [out_preview, out_file], api_name='generate')
+
+    webui.queue(10).launch(share=False, favicon_path='asset/logo.png')
 
