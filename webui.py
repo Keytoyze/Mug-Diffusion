@@ -1,7 +1,4 @@
 import zipfile
-
-import gradio as gr
-
 import os
 import shutil
 
@@ -65,6 +62,21 @@ model = model.to(device)
 template_path = "data/template.osu"
 output_path = "outputs/beatmaps/"
 sampler = DDIMSampler(model)
+
+def getHeight(y, ratio):
+    left = 1
+    right = y
+    while(left<=right):
+        if left == right:
+            return left
+        mid = int((left+right)/2)
+        res = (86*np.ceil(y/mid)-3)/mid
+        if ratio > res:
+            right = mid
+        elif ratio < res:
+            left = mid+1
+        else:
+            return mid
 
 def generate_feature_dict(audioPath, audioTitle, audioArtist, 
                  rss, rs, srs, sr, etts, ett, cjs, cj, cjss, cjsc, stas, sta, stass, stasc, sss, ss, ssss, sssc, jss, js, jsss, jssc,
@@ -236,7 +248,9 @@ def startMapping(audioPath, audioTitle, audioArtist,
                     PFDrawNotes() + 
                     PFDrawOffsets()
             )
-            pic = pf.export_fold(max_height=1000)
+            originalHeight = pf.export().height
+            processedHeight = getHeight(originalHeight, float(3.3))
+            pic = pf.export_fold(max_height=processedHeight)
             previews.append(pic)
 
         # package
@@ -475,6 +489,7 @@ if __name__ == "__main__":
         out_preview = gr.Gallery(label="Chart overview", visible=True, elem_id='output').style(
             preview=True
         )
+        out_preview.style(object_fit='fill')
         out_file = gr.File(label='Output file', visible=False, interactive=False)
         #out.style(preview=True)
 
@@ -489,7 +504,7 @@ if __name__ == "__main__":
 
     #webui.css('lbox { font-size:20px; }')
 
-    webui.queue(10).launch(share=True)
+    webui.queue(10).launch(share=False)
 '''
     with gr.Blocks() as demo:
         HTML = gr.HTML(value=_html)
