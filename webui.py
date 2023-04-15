@@ -246,13 +246,12 @@ def startMapping(audioPath, audioTitle, audioArtist,
             }
 
             def custom_gridify(hit_objects):
-                if rm_jacks:
-                    hit_objects = remove_intractable_mania_mini_jacks(hit_objects, verbose=False)
                 new_hit_objects, bpm, offset = gridify(hit_objects, verbose=False)
                 if auto_snap:
-                    return bpm, offset, new_hit_objects
-                else:
-                    return bpm, offset, hit_objects
+                    hit_objects = new_hit_objects
+                if rm_jacks:
+                    hit_objects = remove_intractable_mania_mini_jacks(hit_objects, verbose=False)
+                return bpm, offset, hit_objects
 
             previews = []
 
