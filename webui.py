@@ -148,8 +148,13 @@ def startMapping(audioPath, audioTitle, audioArtist,
                  progress=gr.Progress()):
     torch.cuda.empty_cache()
 
-    if audioPath is None or not os.path.isfile(audioPath):
+    if audioPath is None:
         raise gr.Error("Audio not found!")
+
+    audioPath = audioPath.name
+
+    if not os.path.isfile(audioPath):
+        raise gr.Error(f"Audio not found: {audioPath}")
 
     if audioTitle is None or audioTitle.strip() == "":
         raise gr.Error("Please specify your audio title")
@@ -162,7 +167,7 @@ def startMapping(audioPath, audioTitle, audioArtist,
         with torch.no_grad():
             uc = None
 
-            for progress_step in progress.tqdm(range(4), desc='Process prompts and audio'):
+            for progress_step in progress.tqdm(range(3), desc='Process prompts and audio'):
 
                 if progress_step == 0:
 
@@ -180,11 +185,10 @@ def startMapping(audioPath, audioTitle, audioArtist,
                     if scale != 1.0:
                         uc = parse_feature(count, {}, feature_yaml, model)
 
-                elif progress_step == 1:
                     print(f"Use feature: {feature_dict}")
                     c = parse_feature(count, feature_dict, feature_yaml, model)
 
-                elif progress_step == 2:
+                elif progress_step == 1:
                     dataset = config.data.params.common_params
 
                     audio_hop_length = dataset.n_fft // 4
@@ -194,7 +198,7 @@ def startMapping(audioPath, audioTitle, audioArtist,
                                                      dataset.n_fft, dataset.sr,
                                                      None)
 
-                elif progress_step == 3:
+                elif progress_step == 2:
                     t = audio.shape[1]
 
                     audio_map_length_ratio = dataset.max_audio_frame // model.z_length  # 64
@@ -313,7 +317,7 @@ def startMapping(audioPath, audioTitle, audioArtist,
 
     except torch.cuda.OutOfMemoryError:
         raise gr.Error("Your GPU runs out of memory! "
-                       "Please reopen MugDiffusion and try to reduce the Sample count, "
+                       "Please reopen MuG Diffusion and try to reduce the Sample count, "
                        "or shrink the audio length. ")
     except (OSError, FileNotFoundError) as e:
         raise gr.Error(f"Your audio title or artist may contain strange characters that cannot "
@@ -339,11 +343,16 @@ if __name__ == "__main__":
             "<h1 style='text-align: center; margin-bottom: 1rem'>"
             "MuG Diffusion: High-quality and Controllable Charting AI for Rhythm Games"
             "</h1>"
+            "<div style='text-align: center; margin-bottom: 1rem'> "
+            "<a href='https://github.com/Keytoyze/Mug-Diffusion'>"
+            "https://github.com/Keytoyze/Mug-Diffusion</a></div>"
         )
 
         with gr.Row():
             with gr.Column(scale=1):
-                audioPath = gr.Audio(label="Audio file", info="drop audio here", type="filepath")
+                # audioPath = gr.Audio(label="Audio file", info="drop audio here", type="filepath")
+                audioPath = gr.File(label="Audio file", info="drop audio here", type="file",
+                                    file_types=['audio'])
 
             with gr.Column(scale=1):
                 audioTitle = gr.Textbox(label="Audio title", lines=1)
@@ -358,7 +367,7 @@ if __name__ == "__main__":
                     audio_title = audio_file.tag.title
                 except:
                     try:
-                        audio_title = x['name'].split('.')[0]
+                        audio_title = os.path.basename(x['name']).split('.')[0]
                     except:
                         audio_title = ""
                     audio_artist = ""
@@ -425,14 +434,14 @@ if __name__ == "__main__":
                         rm_jacks = gr.Checkbox(label="remove intractable mini jacks",
                                                info="recommend when generating stream patterns",
                                                value=True)
-                        auto_snap = gr.Checkbox(label="snapping to grids automatically",
+                        auto_snap = gr.Checkbox(label="snap notes to grids",
                                                 info="recommend when there are no bpm changes",
                                                 value=True)
 
                     with gr.Accordion("Model configurations", open=True):
                         count = gr.Slider(1, 16, value=4.0, label="Sample count", info="number of maps",
                                           step=1.0)
-                        step = gr.Slider(10, 500, value=200, label="Step",
+                        step = gr.Slider(10, 200, value=100, label="Step",
                                          info="step of diffusion process", step=1.0)
                         scale = gr.Slider(1, 30, value=5.0, label="CFG scale",
                                           info="prompts matching degree")
@@ -631,5 +640,8 @@ if __name__ == "__main__":
             btn.click(lambda: gr.update(visible=False), None, out_file)
             btn.click(startMapping, inp, [out_preview, out_file], api_name='generate')
 
-    webui.queue(10).launch(share=False, favicon_path='asset/logo.png')
+        with gr.Tab("Other Modes (to be continue)"):
+            pass
+
+    webui.queue(10).launch(share=False, favicon_path='asset/logo.ico')
 

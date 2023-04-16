@@ -105,6 +105,7 @@ def timing(time_list, verbose=True):
     # rgs = LinearRegression(fit_intercept=True)
     # rgs.fit(np.asarray(meters).reshape((-1, 1)), times[:i + 1])
 
+epsilon = 10
 
 def gridify(hit_objects, verbose=True):
     key_count = 4  # TODO
@@ -115,10 +116,9 @@ def gridify(hit_objects, verbose=True):
         times.append(st)
     times = np.asarray(times, dtype=np.float32)
     bpm, offset = timing(times, verbose)
-    epsilon = 10
 
     def format_time(t):
-        for div in [1, 2, 4, 3, 6, 8, 16]:
+        for div in [1, 2, 4, 3, 6, 8, 16, 32]:
             gap = 60 * 1000 / (bpm * div)
             meter = (t - offset) / gap
             meter_round = round(meter)
@@ -186,8 +186,6 @@ def remove_intractable_mania_mini_jacks(hit_objects, verbose=True):
 
     for i in range(len(new_hit_objects)):
         start_time, column, end_time = parse_hit_objects(new_hit_objects[i], column_width)
-        if end_time is not None: # ignore LN
-            continue
 
         previous_jacks = get_notes_idx_in_interval(i, start_time, jack_interval, column,
                                                    search_previous=True, search_latter=False)
@@ -199,7 +197,7 @@ def remove_intractable_mania_mini_jacks(hit_objects, verbose=True):
                                                        search_latter=True)
             count_notes_after_it = 0
             for n in notes_after_it:
-                if abs(n[1] - start_time) >= 10:
+                if abs(n[1] - start_time) >= epsilon:
                     count_notes_after_it += 1
             if count_notes_after_it == 0:
                 if verbose:
@@ -209,10 +207,12 @@ def remove_intractable_mania_mini_jacks(hit_objects, verbose=True):
             # Step 2: try to move the notes to other columns.
             # Priority: latter note > previous note, same side > other sides
             success = False
-            for (try_move_index, try_move_t, try_move_src_column) in [
-                (i, start_time, column),
-                previous_jacks[0]
+            for (is_ln, try_move_index, try_move_t, try_move_src_column) in [
+                (end_time is not None, i, start_time, column),
+                (False, ) + previous_jacks[0]
             ]:
+                if is_ln:
+                    continue # we don't want to move LN since it's intractable
                 if try_move_src_column == 0 or try_move_src_column == 1:
                     try_move_dst_columns = (1 - try_move_src_column, 2, 3)
                 else:
@@ -250,7 +250,7 @@ def remove_intractable_mania_mini_jacks(hit_objects, verbose=True):
                                           10, -1, search_previous=True,
                                           search_latter=True)
             ) + 1
-            if holds_latter > 1 and holds_latter >= holds_previous:
+            if holds_latter > 1 and holds_latter >= holds_previous and end_time is None:
                 if verbose:
                     print(f"Remove: {start_time} | {column} "
                           f"due to the holds: {holds_latter} >= {holds_previous}")
@@ -260,10 +260,16 @@ def remove_intractable_mania_mini_jacks(hit_objects, verbose=True):
                     print(f"Remove: {previous_jacks[0][1]} | {column} "
                           f"due to the holds: {holds_latter} >= {holds_previous}")
                 new_hit_objects[previous_jacks[0][0]] = None
+            elif end_time is not None: # LN, remove previous
+                if verbose:
+                    print(f"Remove: {previous_jacks[0][1]} | {column} "
+                          f"due to LN")
+                new_hit_objects[previous_jacks[0][0]] = None
             else:
                 if verbose:
-                    print(f"Cannot move: {start_time} | {previous_jacks[0][1]}, column = {column}, "
-                          f"holds = {holds_latter} | {holds_previous}")
+                    print(f"Remove: {start_time} | {column} "
+                          f"for no reason")
+                new_hit_objects[i] = None
 
     return [x for x in new_hit_objects if x is not None]
 
