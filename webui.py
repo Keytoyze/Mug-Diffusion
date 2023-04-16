@@ -262,15 +262,15 @@ def startMapping(audioPath, audioTitle, audioArtist,
             convertor_params = convertor_params.copy()
             convertor_params["from_logits"] = True
             _, beatmap_meta = parse_osu_file(template_path, convertor_params)
-            output_name = f"audio.ogg"
+            output_name = f"audio.mp3"
 
             proc = subprocess.Popen(['ffmpeg', '-hide_banner', '-loglevel', 'error',
-                                     '-i', audioPath, '-c:a', 'libvorbis',
+                                     '-i', audioPath, '-c:a', 'libmp3lame',
                                      os.path.join(save_dir, output_name)
                                      ])
             proc.wait()
             if proc.returncode != 0:
-                print("WARNING: cannot convert to ogg. Copy instead.")
+                print("WARNING: cannot convert to mp3. Copy instead.")
                 output_name = f"audio{os.path.splitext(audioPath)[-1]}"
                 shutil.copyfile(audioPath, os.path.join(save_dir, output_name))
 
