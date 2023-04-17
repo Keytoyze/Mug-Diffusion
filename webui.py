@@ -310,7 +310,7 @@ def startMapping(audioPath, audioTitle, audioArtist,
                 pic = pf.export_fold(max_height=processedHeight)
                 previews.append(pic)
             # package
-            output_osz_path = os.path.join(output_path, save_name + ".osz")
+            output_osz_path = os.path.join(output_path, save_name + '.osz')
             with zipfile.ZipFile(output_osz_path, 'w') as f:
                 for p in os.listdir(save_dir):
                     f.write(os.path.join(save_dir, p), arcname=p)
@@ -325,7 +325,9 @@ def startMapping(audioPath, audioTitle, audioArtist,
 
     return [
         gr.update(value=previews, visible=True),
-        gr.update(value=output_osz_path, visible=True)
+        gr.update(value=output_osz_path, visible=True),
+        gr.update(value=f"{audioArtist} - {audioTitle}"),
+        gr.update(visible=True)
     ]
 
 
@@ -445,6 +447,8 @@ if __name__ == "__main__":
                                          info="step of diffusion process", step=1.0)
                         scale = gr.Slider(1, 30, value=5.0, label="CFG scale",
                                           info="prompts matching degree")
+
+                        
 
                 with gr.Column(scale=1):
                     with gr.Accordion("Pattern", open=True):
@@ -623,6 +627,8 @@ if __name__ == "__main__":
                         tech_switch.select(teche_switch, None, tech)
                         tech_score_switch.select(techss_switch, None, tech_score)
 
+            btn = gr.Button('Start Generation', variant='primary')
+
             inp = [audioPath, audioTitle, audioArtist, rs_switch, rs, sr_switch, sr, ett_switch, ett,
                    cj_switch, cj, cj_score_switch, cj_score, sta_switch, sta, \
                    sta_score_switch, sta_score, ss_switch, ss, ss_score_switch, ss_score, js_switch, js,
@@ -630,15 +636,28 @@ if __name__ == "__main__":
                    hs_score_switch, hs_score, jsp_switch, jsp, jsp_score_switch, jsp_score, tech_switch,
                    tech, tech_score_switch, tech_score, \
                    maptype_switch, lnr_switch, mapType, lnr, count, step, scale, rm_jacks, auto_snap]
-            btn = gr.Button('Start Generation', variant='primary')
+            
             out_preview = gr.Gallery(label="Chart overview", visible=True, elem_id='output').style(
                 preview=True
             )
             out_preview.style(object_fit='fill')
-            out_file = gr.File(label='Output file', visible=False, interactive=False)
+            with gr.Row():
+                with gr.Column(scale=1, min_width=100):
+                    fileFormat = gr.Radio(['.osz', '.mcz'], show_label=False, value='.osz', visible=False)
+                with gr.Column(scale=2, min_width=100):
+                    out_file = gr.File(label='Output file', visible=False, interactive=False, elem_id='outputFile')
 
+            def getFileName(audioArtist, audioTitle):
+                return gr.update(value=f"{audioArtist} - {audioTitle}", visible=True)
+            fileName = gr.Textbox(visible=False)
+            
+            fileFormat.change(None, [fileFormat, fileName], None, _js='''(format, name) => {
+                               var file = document.getElementById('outputFile');
+                               file.querySelector('td').innerText = name+format;
+                               file.querySelector('a').setAttribute('download', name+format);}
+                               ''')
             btn.click(lambda: gr.update(visible=False), None, out_file)
-            btn.click(startMapping, inp, [out_preview, out_file], api_name='generate')
+            btn.click(startMapping, inp, [out_preview, out_file, fileName, fileFormat], api_name='generate')
 
         with gr.Tab("Other Modes (to be continue)"):
             pass
