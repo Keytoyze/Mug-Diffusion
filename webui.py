@@ -1,12 +1,25 @@
-import subprocess
-
 print("Loading imports")
 
 import warnings
-import zipfile
-import base64
+import subprocess
+import torch
+import minacalc
+
+# print error if cuda fails to init
+try:
+    torch.cuda.init()
+except:
+    import traceback
+    traceback.print_exc()
+
+cuda_available = torch.cuda.is_available()
+if not cuda_available:
+    print("WARNING: CUDA GPU is not available, and we fall back to CPU mode, which may be slow!")
 
 warnings.filterwarnings('ignore')
+
+import zipfile
+import base64
 
 import audioread.ffdec
 
@@ -44,7 +57,6 @@ def load_model_from_config(config, ckpt, verbose=False):
         print("unexpected keys:")
         print(u)
 
-    model.cuda()
     model.eval()
     return model
 
@@ -52,7 +64,7 @@ def load_model_from_config(config, ckpt, verbose=False):
 # TODO: make configurable
 config = OmegaConf.load("models/ckpt/model.yaml")
 model = load_model_from_config(config, "models/ckpt/model.ckpt")
-device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
+device = torch.device("cuda") if cuda_available else torch.device("cpu")
 model = model.to(device)
 template_path = "asset/template.osu"
 output_path = "outputs/beatmaps/"
@@ -140,13 +152,95 @@ def parse_feature(batch_size, feature_dicts, feature_yaml, model: DDPM):
     return model.model.cond_stage_model(feature)
 
 
+def startInvertion(chart_path, rate):
+
+    if rate is None or rate <= 0:
+        raise gr.Error("Rate must > 0")
+    if chart_path is None:
+        raise gr.Error("Chart not found")
+
+    hit_objects, meta = parse_osu_file(chart_path.name, None)
+    notes = []
+    ln = 0
+    rc = 0
+
+    for line in hit_objects:
+        if line.strip() == "":
+            continue
+        try:
+            params = line.split(",")
+            if int(params[3]) == 128:
+                ln += 1
+            else:
+                rc += 1
+            start = int(float(params[2]))
+            column = int(int(float(params[0])) / int(512 / 4))
+            assert column <= 3
+            notes.append((start, column))
+        except:
+            pass
+
+    ln_ratio = ln / (ln + rc)
+
+    is_rc = ln_ratio < 0.1
+    is_ln = ln_ratio >= 0.4
+    is_hb = 0.1 <= ln_ratio <= 0.7
+    if is_rc:
+        map_type = "Rice (LN < 10%)"
+    elif is_hb:
+        map_type = "Hybrid (10% < LN < 70%)"
+    else:
+        map_type = "Long Note (LN > 40%)"
+
+    notes = sorted(notes, key=lambda x: x[0])
+    ett_result = minacalc.calc_skill_set(rate, notes)
+    keys = [
+        "overall",
+        "stream",
+        "jumpstream",
+        "handstream",
+        "stamina",
+        "jackspeed",
+        "chordjack",
+        "technical",
+    ]
+    ett_result = dict(zip(keys, ett_result))
+    result_patterns = ett_result.copy()
+    del result_patterns['overall']
+    del result_patterns['stamina']
+    max_score = max(result_patterns.values())
+
+    result = [
+        ("MSD score (Etterna)", ett_result['overall']),
+        ("map type", map_type),
+        ("ln ratio", ln_ratio),
+        ("chordjack", "more" if (max_score - ett_result['chordjack'] <= 1) else "less"),
+        ("chordjack MSD", ett_result['chordjack']),
+        ("stamina", "more" if (max_score - ett_result['stamina'] <= 1) else "less"),
+        ("stamina MSD", ett_result['stamina']),
+        ("stream", "more" if (max_score - ett_result['stream'] <= 1) else "less"),
+        ("stream MSD", ett_result['stream']),
+        ("jumpstream", "more" if (max_score - ett_result['jumpstream'] <= 1) else "less"),
+        ("jumpstream MSD", ett_result['jumpstream']),
+        ("handstream", "more" if (max_score - ett_result['handstream'] <= 1) else "less"),
+        ("handstream MSD", ett_result['handstream']),
+        ("jackspeed", "more" if (max_score - ett_result['jackspeed'] <= 1) else "less"),
+        ("jackspeed MSD", ett_result['jackspeed']),
+        ("technical", "more" if (max_score - ett_result['technical'] <= 1) else "less"),
+        ("technical MSD", ett_result['technical']),
+    ]
+    # result = "\n".join(map(lambda x: f"{x[0]}: {x[1]}", result))
+    return gr.update(value=result)
+
+
 def startMapping(audioPath, audioTitle, audioArtist,
                  rss, rs, srs, sr, etts, ett, cjs, cj, cjss, cjsc, stas, sta, stass, stasc, sss, ss,
                  ssss, sssc, jss, js, jsss, jssc,
                  hss, hs, hsss, hssc, jsps, jsp, jspss, jspsc, techs, tech, techss, techsc, mts,
                  lnrs, mapType, lnr, count, step, scale, rm_jacks, auto_snap,
                  progress=gr.Progress()):
-    torch.cuda.empty_cache()
+    if cuda_available:
+        torch.cuda.empty_cache()
 
     if audioPath is None:
         raise gr.Error("Audio not found!")
@@ -222,10 +316,12 @@ def startMapping(audioPath, audioTitle, audioArtist,
                     w = torch.tensor(
                         np.stack([audio for _ in range(count)]),
                         dtype=torch.float32).to(model.device)
-                    model.model.wave_model.to('cuda')
+                    if cuda_available:
+                        model.model.wave_model.to('cuda')
                     w = model.model.wave_model(w)
-                    model.model.wave_model.to('cpu')
-                    torch.cuda.empty_cache()
+                    if cuda_available:
+                        model.model.wave_model.to('cpu')
+                        torch.cuda.empty_cache()
 
             shape = None
             samples_ddim, _ = sampler.sample(S=step,
@@ -363,7 +459,7 @@ if __name__ == "__main__":
 
             def on_change_audio(x):
                 try:
-                    path = audioPath.base64_to_temp_file_if_needed(x['data'], x['name'])
+                    path = x['name']
                     audio_file = eyed3.load(path)
                     audio_artist = audio_file.tag.artist
                     audio_title = audio_file.tag.title
@@ -441,7 +537,7 @@ if __name__ == "__main__":
                                                 value=True)
 
                     with gr.Accordion("Model configurations", open=True):
-                        count = gr.Slider(1, 16, value=4.0, label="Sample count", info="number of maps",
+                        count = gr.Slider(1, 16, value=4.0, label="Sample count", info="number of charts",
                                           step=1.0)
                         step = gr.Slider(10, 200, value=100, label="Step",
                                          info="step of diffusion process", step=1.0)
@@ -643,7 +739,7 @@ if __name__ == "__main__":
             out_preview.style(object_fit='fill')
             with gr.Row():
                 with gr.Column(scale=1, min_width=100):
-                    fileFormat = gr.Radio(['.osz', '.mcz'], show_label=False, value='.osz', visible=False)
+                    fileFormat = gr.Radio(['.osz'], show_label=False, value='.osz', visible=False)
                 with gr.Column(scale=2, min_width=100):
                     out_file = gr.File(label='Output file', visible=False, interactive=False, elem_id='outputFile')
 
@@ -657,7 +753,22 @@ if __name__ == "__main__":
                                file.querySelector('a').setAttribute('download', name+format);}
                                ''')
             btn.click(lambda: gr.update(visible=False), None, out_file)
+            btn.click(lambda: gr.update(visible=False), None, fileFormat)
             btn.click(startMapping, inp, [out_preview, out_file, fileName, fileFormat], api_name='generate')
+
+        with gr.Tab("Chart to Prompt"):
+            # with gr.Column(scale=1):
+            gr.Markdown("This tool can get prompts from a chart / beatmap file, which helps you "
+                        "write better prompts for AI charting.")
+            with gr.Row():
+                with gr.Column(scale=1):
+                    chart_path = gr.File(label="Chart file", type="file",
+                                         file_types=['.osu'])
+                    rate = gr.Number(value=1.0, label='Rate', precision=2)
+                    invert_btn = gr.Button('Generate prompt', variant='primary')
+                with gr.Column(scale=1):
+                    invert_out = gr.Dataframe(headers=["Parameter", "Value"], interactive=False)
+            invert_btn.click(startInvertion, [chart_path, rate], invert_out, api_name='chart2prompt')
 
         with gr.Tab("Other Modes (to be continue)"):
             pass
