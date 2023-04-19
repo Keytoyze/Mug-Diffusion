@@ -1,3 +1,5 @@
+import random
+
 print("Loading imports")
 
 import warnings
@@ -14,12 +16,13 @@ except:
 
 cuda_available = torch.cuda.is_available()
 if not cuda_available:
-    print("WARNING: CUDA GPU is not available, and we fall back to CPU mode, which may be slow!")
+    print("WARNING: CUDA GPU is not available. Fallback to CPU mode, which may be slow!")
 
 warnings.filterwarnings('ignore')
 
 import zipfile
 import base64
+from collections import OrderedDict
 
 import audioread.ffdec
 
@@ -45,6 +48,7 @@ from mug.cond.wave import *
 
 
 def load_model_from_config(config, ckpt, verbose=False):
+    global cuda_available
     print(f"Loading model from {ckpt}")
     pl_sd = torch.load(ckpt, map_location="cpu")
     sd = pl_sd["state_dict"]
@@ -57,6 +61,18 @@ def load_model_from_config(config, ckpt, verbose=False):
         print("unexpected keys:")
         print(u)
 
+    if cuda_available:
+        try:
+            model.cuda()
+        except:
+            import traceback
+            traceback.print_exc()
+            cuda_available = False
+            model.cpu()
+            print(
+                "WARNING: CUDA GPU is not available. Fallback to CPU mode, which may be slow!"
+            )
+
     model.eval()
     return model
 
@@ -68,7 +84,7 @@ device = torch.device("cuda") if cuda_available else torch.device("cpu")
 model = model.to(device)
 template_path = "asset/template.osu"
 output_path = "outputs/beatmaps/"
-sampler = DDIMSampler(model)
+sampler = DDIMSampler(model, device)
 
 
 def getHeight(y, ratio):
@@ -97,16 +113,33 @@ def generate_feature_dict(audioPath, audioTitle, audioArtist,
                           rss, rs, srs, sr, etts, ett, cjs, cj, cjss, cjsc, stas, sta, stass, stasc,
                           sss, ss, ssss, sssc, jss, js, jsss, jssc,
                           hss, hs, hsss, hssc, jsps, jsp, jspss, jspsc, techs, tech, techss, techsc,
-                          mts, lnrs, mapType, lnr, count, step, scale, rm_jacks, auto_snap):
+                          mts, lnrs, mapType, lnr, count, step, scale, rm_jacks, auto_snap, seed):
     feature_dict = {}
+    human_readable_dict = OrderedDict()
 
-    def add_value_if(condition, key, val):
+    def add_value_if(condition, key, val, h_key, h_val):
         if condition:
             feature_dict[key] = val
+            human_readable_dict[h_key] = h_val
 
-    add_value_if(rss, 'rank_status', 'ranked' if rs == 'ranked/stable' else rs)
-    add_value_if(srs, 'sr', sr)
-    add_value_if(etts, 'ett', ett)
+    add_value_if(rss, 'rank_status', 'ranked' if rs == 'ranked/stable' else rs, 'style', rs)
+    add_value_if(srs, 'sr', sr, 'sr', sr)
+    add_value_if(etts, 'ett', ett, 'msd', ett)
+
+    if mts:
+        if mapType.startswith("Rice"):
+            feature_dict['rc'] = 1
+            human_readable_dict["type"] = 'rc'
+        elif mapType.startswith("Long Note"):
+            feature_dict['ln'] = 1
+            human_readable_dict["type"] = 'ln'
+        elif mapType.startswith("Hybrid"):
+            feature_dict['hb'] = 1
+            human_readable_dict["type"] = 'hb'
+        else:
+            raise ValueError(mapType)
+
+    add_value_if(lnrs, 'ln_ratio', lnr, "ln", lnr)
 
     patterns = [
         (cjs, 'Chordjack', cj, cjss, cjsc),
@@ -118,29 +151,19 @@ def generate_feature_dict(audioPath, audioTitle, audioArtist,
         (techs, 'Technical', tech, techss, techsc)
     ]
     for pattern_switch, pattern_name, pattern_value, pattern_score_switch, pattern_score_value in patterns:
-        add_value_if(pattern_switch, pattern_name.lower(), pattern_value.startswith("more"))
+        add_value_if(pattern_switch, pattern_name.lower(), pattern_value.startswith("more"),
+                     pattern_name.lower(), "more" if pattern_value.startswith("more") else "less")
         # add_value_if(pattern_switch, pattern_name.lower(), pattern_name)
-        add_value_if(pattern_score_switch, pattern_name.lower() + "_ett", pattern_score_value)
+        add_value_if(pattern_score_switch, pattern_name.lower() + "_ett", pattern_score_value,
+                     pattern_name.lower() + "-msd", pattern_score_value)
 
-    if mts:
-        feature_dict['ln'] = feature_dict['rc'] = feature_dict['hb'] = 0
-        if mapType.startswith("Rice"):
-            feature_dict['rc'] = 1
-        elif mapType.startswith("Long Note"):
-            feature_dict['ln'] = 1
-        elif mapType.startswith("Hybrid"):
-            feature_dict['hb'] = 1
-        else:
-            raise ValueError(mapType)
-
-    add_value_if(lnrs, 'ln_ratio', lnr)
-    return feature_dict
-
-
-def updatePrompt(*args):
-    feature_dict = generate_feature_dict(*args)
-    return gr.update(value=str(feature_dict))
-
+    human_readable_dict['rm-interval'] = rm_jacks
+    human_readable_dict['snapping'] = auto_snap
+    human_readable_dict['count'] = count
+    human_readable_dict['step'] = step
+    human_readable_dict['cfg-scale'] = scale
+    human_readable_dict['seed'] = seed
+    return feature_dict, human_readable_dict
 
 def parse_feature(batch_size, feature_dicts, feature_yaml, model: DDPM):
     features = []
@@ -184,11 +207,11 @@ def startInvertion(chart_path, rate):
 
     is_rc = ln_ratio < 0.1
     is_ln = ln_ratio >= 0.4
-    is_hb = 0.1 <= ln_ratio <= 0.7
+    is_hb = 0.1 <= ln_ratio <= 0.4
     if is_rc:
         map_type = "Rice (LN < 10%)"
     elif is_hb:
-        map_type = "Hybrid (10% < LN < 70%)"
+        map_type = "Hybrid (10% < LN < 40%)"
     else:
         map_type = "Long Note (LN > 40%)"
 
@@ -237,7 +260,7 @@ def startMapping(audioPath, audioTitle, audioArtist,
                  rss, rs, srs, sr, etts, ett, cjs, cj, cjss, cjsc, stas, sta, stass, stasc, sss, ss,
                  ssss, sssc, jss, js, jsss, jssc,
                  hss, hs, hsss, hssc, jsps, jsp, jspss, jspsc, techs, tech, techss, techsc, mts,
-                 lnrs, mapType, lnr, count, step, scale, rm_jacks, auto_snap,
+                 lnrs, mapType, lnr, count, step, scale, rm_jack_interval, auto_snap, seed,
                  progress=gr.Progress()):
     if cuda_available:
         torch.cuda.empty_cache()
@@ -256,6 +279,16 @@ def startMapping(audioPath, audioTitle, audioArtist,
     if audioArtist is None or audioArtist.strip() == "":
         raise gr.Error("Please specify your audio artist")
 
+    # set seed
+    seed = int(seed)
+    if seed < 0:
+        seed = random.randint(1, 100000000)
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+
+
     try:
 
         with torch.no_grad():
@@ -265,21 +298,23 @@ def startMapping(audioPath, audioTitle, audioArtist,
 
                 if progress_step == 0:
 
-                    feature_dict = generate_feature_dict(
+                    feature_dict, h_dict = generate_feature_dict(
                         audioPath, audioTitle, audioArtist, rss, rs, srs, sr,
                         etts, ett, cjs, cj, cjss, cjsc, stas, sta, stass, stasc, sss, ss, ssss,
                         sssc,
                         jss, js, jsss, jssc, hss, hs, hsss, hssc, jsps, jsp, jspss, jspsc,
                         techs, tech, techss, techsc, mts, lnrs, mapType, lnr, count, step, scale,
-                        rm_jacks,
-                        auto_snap
+                        rm_jack_interval,
+                        auto_snap, seed
                     )
+                    def prompt_mapping(item):
+                        return f'{item[0]}={item[1]}'
+                    prompt = ", ".join(map(prompt_mapping, h_dict.items()))
                     feature_yaml = yaml.safe_load(open("configs/mug/mania_beatmap_features.yaml"))
 
                     if scale != 1.0:
                         uc = parse_feature(count, {}, feature_yaml, model)
 
-                    print(f"Use feature: {feature_dict}")
                     c = parse_feature(count, feature_dict, feature_yaml, model)
 
                 elif progress_step == 1:
@@ -349,8 +384,8 @@ def startMapping(audioPath, audioTitle, audioArtist,
                 new_hit_objects, bpm, offset = gridify(hit_objects, verbose=False)
                 if auto_snap:
                     hit_objects = new_hit_objects
-                if rm_jacks:
-                    hit_objects = remove_intractable_mania_mini_jacks(hit_objects, verbose=False)
+                hit_objects = remove_intractable_mania_mini_jacks(hit_objects, verbose=False,
+                                                                  jack_interval=rm_jack_interval)
                 return bpm, offset, hit_objects
 
             previews = []
@@ -387,7 +422,8 @@ def startMapping(audioPath, audioTitle, audioArtist,
                                   "TitleUnicode": audioTitle,
                                   "Artist": audioArtist,
                                   "ArtistUnicode": audioArtist,
-                                  "AIMode": creator
+                                  "AIMode": creator,
+                                  "AIPrompt": prompt + f", {i}"
                               }, gridify=custom_gridify)
                 shutil.copyfile("asset/bg.jpg", os.path.join(save_dir, "bg.jpg"))
 
@@ -420,10 +456,11 @@ def startMapping(audioPath, audioTitle, audioArtist,
                        f"serve as a file path. Reason: {e} ")
 
     return [
-        gr.update(value=previews, visible=True),
-        gr.update(value=output_osz_path, visible=True),
-        gr.update(value=f"{audioArtist} - {audioTitle}"),
-        gr.update(visible=True)
+        gr.update(value=previews, visible=True), # char preview gallary
+        gr.update(value=output_osz_path, visible=True),  # output file
+        gr.update(value=f"{audioArtist} - {audioTitle}"),  # title
+        gr.update(visible=True), # output file type
+        gr.update(visible=True, value=prompt) # prompt overview
     ]
 
 
@@ -510,7 +547,7 @@ if __name__ == "__main__":
                                 lnr_switch = gr.Checkbox(label="ln ratio")
                             with gr.Column(scale=3, min_width=100):
                                 mapType = gr.Radio(["Rice (LN < 10%)", "Long Note (LN > 40%)",
-                                                    "Hybrid (10% < LN < 70%)"],
+                                                    "Hybrid (10% < LN < 40%)"],
                                                    show_label=False, value="Rice (LN < 10%)",
                                                    visible=False)
                                 lnr = gr.Slider(0, 1, value=0.0, label="ln ratio", visible=False,
@@ -529,25 +566,39 @@ if __name__ == "__main__":
                         lnr_switch.select(lnrs_switch, None, lnr)
 
                     with gr.Accordion("Special", open=True):
-                        rm_jacks = gr.Checkbox(label="remove intractable mini jacks",
-                                               info="recommend when generating stream patterns",
-                                               value=True)
+                        rm_jacks = gr.Number(label="minimal interval (ms) for eliminating minijacks",
+                                             info="will rearrange patterns to reduce intractable "
+                                                  "minijack less than the given interval. ",
+                                             value=90)
+                        # rm_jacks = gr.Checkbox(label="remove intractable mini jacks",
+                        #                        info="recommend when generating stream patterns",
+                        #                        value=True)
                         auto_snap = gr.Checkbox(label="snap notes to grids",
                                                 info="recommend when there are no bpm changes",
                                                 value=True)
 
                     with gr.Accordion("Model configurations", open=True):
-                        count = gr.Slider(1, 16, value=4.0, label="Sample count", info="number of charts",
-                                          step=1.0)
-                        step = gr.Slider(10, 200, value=100, label="Step",
-                                         info="step of diffusion process", step=1.0)
-                        scale = gr.Slider(1, 30, value=5.0, label="CFG scale",
-                                          info="prompts matching degree")
+                        with gr.Row():
+                            count = gr.Slider(1, 16, value=4.0, label="Sampling count", info="number of charts",
+                                              step=1.0)
+                            step = gr.Slider(10, 200, value=100, label="Sampling step",
+                                             info="step of diffusion process", step=1.0)
+                        with gr.Row():
+                            scale = gr.Slider(1, 30, value=5.0, label="CFG scale",
+                                              info="how strongly it should conform to prompt")
+                            seed = gr.Number(value=-1, label='Random seed',
+                                             info="random seed for reproduction. "
+                                                  "-1 will cause a new seed.")
 
-                        
+
 
                 with gr.Column(scale=1):
                     with gr.Accordion("Pattern", open=True):
+                        gr.Markdown("NOTE: If you don't choose an option, AI will "
+                                    "**freely decide the pattern**, "
+                                    "instead of **not writing this pattern**. "
+                                    "For precisely controlling, "
+                                    'try to select the option and choose `more` or `less`.')
                         with gr.Row():
                             with gr.Column(scale=1, min_width=100):
                                 rs_switch = gr.Checkbox(label="style", value=True, elem_id="lbox")
@@ -659,7 +710,7 @@ if __name__ == "__main__":
                                 hs_switch = gr.Checkbox(label="handsteam")
                                 hs_score_switch = gr.Checkbox(label="handstream MSD")
                             with gr.Column(scale=3, min_width=100):
-                                hs = gr.Radio(['more handstream', 'less handsrteam'],
+                                hs = gr.Radio(['more handstream', 'less handstream'],
                                               value='more handstream',
                                               visible=False, show_label=False)
                                 hs_score = gr.Slider(5, 35, value=17, label="handsteam MSD:",
@@ -731,8 +782,11 @@ if __name__ == "__main__":
                    js_score_switch, js_score, hs_switch, hs, \
                    hs_score_switch, hs_score, jsp_switch, jsp, jsp_score_switch, jsp_score, tech_switch,
                    tech, tech_score_switch, tech_score, \
-                   maptype_switch, lnr_switch, mapType, lnr, count, step, scale, rm_jacks, auto_snap]
-            
+                   maptype_switch, lnr_switch, mapType, lnr, count, step, scale, rm_jacks, auto_snap,
+                   seed
+                   ]
+
+            prompt_out = gr.Markdown(visible=False)
             out_preview = gr.Gallery(label="Chart overview", visible=True, elem_id='output').style(
                 preview=True
             )
@@ -746,15 +800,18 @@ if __name__ == "__main__":
             def getFileName(audioArtist, audioTitle):
                 return gr.update(value=f"{audioArtist} - {audioTitle}", visible=True)
             fileName = gr.Textbox(visible=False)
-            
+
             fileFormat.change(None, [fileFormat, fileName], None, _js='''(format, name) => {
                                var file = document.getElementById('outputFile');
                                file.querySelector('td').innerText = name+format;
                                file.querySelector('a').setAttribute('download', name+format);}
                                ''')
+
             btn.click(lambda: gr.update(visible=False), None, out_file)
             btn.click(lambda: gr.update(visible=False), None, fileFormat)
-            btn.click(startMapping, inp, [out_preview, out_file, fileName, fileFormat], api_name='generate')
+            btn.click(lambda: gr.update(visible=False), None, prompt_out)
+            btn.click(startMapping, inp, [out_preview, out_file, fileName, fileFormat, prompt_out],
+                      api_name='generate')
 
         with gr.Tab("Chart to Prompt"):
             # with gr.Column(scale=1):
@@ -773,5 +830,10 @@ if __name__ == "__main__":
         with gr.Tab("Other Modes (to be continue)"):
             pass
 
-    webui.queue(10).launch(share=False, favicon_path='asset/logo.ico')
+        gr.Markdown("Copyright: Charts created through MuG Diffusion are "
+                    "fully open source, explicitly falling under "
+                    "the [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) "
+                    "Universal Public Domain Dedication.")
+
+    webui.queue(10).launch(share=False, favicon_path='asset/logo.ico', inbrowser=True)
 

@@ -139,9 +139,8 @@ def gridify(hit_objects, verbose=True):
     return new_hit_objects, bpm, offset
 
 
-def remove_intractable_mania_mini_jacks(hit_objects, verbose=True):
+def remove_intractable_mania_mini_jacks(hit_objects, verbose=True, jack_interval=90):
     key_count = 4  # TODO
-    jack_interval = 90
     column_width = int(512 / key_count)
     new_hit_objects = [x for x in hit_objects]
 

@@ -16,3 +16,4 @@ pytorch_lightning
 gradio
 reamber
 opt-einsum
+scripts/MinaCalc-1.0.tar.gz
