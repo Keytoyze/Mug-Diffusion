@@ -6,6 +6,8 @@ import warnings
 import subprocess
 import torch
 import minacalc
+import threading
+import requests
 
 # print error if cuda fails to init
 try:
@@ -79,6 +81,22 @@ def load_model_from_config(config, ckpt, verbose=False):
 
 # TODO: make configurable
 config = OmegaConf.load("models/ckpt/model.yaml")
+
+try:
+    result = requests.get(
+        f"https://mugdiffusion.keytoix.vip/mugdiffusion/api/update?version={config.version}",
+        timeout=(10, 10)
+    ).json()
+
+    if result['version'] > config.version:
+        print(f"New version {result['version']} found! Please visit {result['incremental_url']} "
+              f"for updating. \n"
+              f"Press <Enter> to continue...")
+        input()
+except:
+    pass
+
+
 model = load_model_from_config(config, "models/ckpt/model.ckpt")
 device = torch.device("cuda") if cuda_available else torch.device("cpu")
 model = model.to(device)
@@ -449,7 +467,7 @@ def startMapping(audioPath, audioTitle, audioArtist,
 
     except torch.cuda.OutOfMemoryError:
         raise gr.Error("Your GPU runs out of memory! "
-                       "Please reopen MuG Diffusion and try to reduce the Sample count, "
+                       "Please reopen MuG Diffusion and try to reduce the Sampling count, "
                        "or shrink the audio length. ")
     except (OSError, FileNotFoundError) as e:
         raise gr.Error(f"Your audio title or artist may contain strange characters that cannot "
@@ -568,7 +586,9 @@ if __name__ == "__main__":
                     with gr.Accordion("Special", open=True):
                         rm_jacks = gr.Number(label="minimal interval (ms) for eliminating minijacks",
                                              info="will rearrange patterns to reduce intractable "
-                                                  "minijack less than the given interval. ",
+                                                  "minijack less than the given interval. "
+                                                  "By default, 90 ms is the 1/4 meter of "
+                                                  "166.67 bpm (= 15,000 / 90).",
                                              value=90)
                         # rm_jacks = gr.Checkbox(label="remove intractable mini jacks",
                         #                        info="recommend when generating stream patterns",
