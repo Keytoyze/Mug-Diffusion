@@ -20,7 +20,7 @@ MuG Diffusion aims to support other rhythm games in the future (osu!standard, 5-
 
 I packaged a bundled executable containing all the dependencies and model weights in the Windows platform, which is available at:
 - [Google Drive](https://drive.google.com/file/d/1-TmLsveLAjRCPwd0iwXS7V1v61MlQ7DM/view?usp=share_link)
-- [Tencent Cloud](https://mug-diffusion-1305818561.cos.ap-nanjing.myqcloud.com/MugDiffusion.zip)
+- [hiosu](https://dl2.hiosu.com/d/kuit/MugDiffusion.zip)
 
 Unzip the file and double click "Mug Diffusion.exe", which will open a browser interface for controlling. It takes around 30 seconds on my computer (NVidia 3050Ti, 4GB memory) to generate four charts for a 3-minute-long audio.
 
