@@ -22,7 +22,7 @@ I packaged a bundled executable containing all the dependencies and model weight
 Unzip the file and double click "Mug Diffusion.exe", which will open a browser interface for controlling. It takes around 30 seconds on my computer (NVidia 3050Ti, 4GB memory) to generate four charts for a 3-minute-long audio.
 
 
-### Runing from Source
+### Running from Source
 
 If you use other platforms or want to run from source, here are the instructions.
 
