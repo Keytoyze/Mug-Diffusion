@@ -1,3 +1,15 @@
+**MuG Diffusion**
+
+_A charting AI for rhythm games._
+
+![LICENSE](https://img.shields.io/github/license/Keytoyze/Mug-Diffusion)![GitHub stars](https://img.shields.io/github/stars/Keytoyze/Mug-Diffusion.svg)![GitHub issues](https://img.shields.io/github/issues/Keytoyze/Mug-Diffusion)![GitHub forks](https://img.shields.io/github/forks/Keytoyze/Mug-Diffusion)!["QQ Chat Group](https://img.shields.io/badge/QQ%E7%BE%A4-548470510-orange)
+
+---
+
+English | [中文](./README_CN.md)
+
+
+
 ![](asset/bg.jpg)
 
 # MuG Diffusion
