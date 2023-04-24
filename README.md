@@ -12,8 +12,6 @@ English | [中文](./README_CN.md)
 
 ![](asset/bg.jpg)
 
-# MuG Diffusion
-
 MuG Diffusion is a charting AI for rhythm games based on [Stable Diffusion](https://github.com/CompVis/latent-diffusion/) (one of the most powerful AIGC models) with a large modification to incorporate audio waves. Given an audio file, MuG Diffusion is able to generate high-quality diverse charts, which is aligned with the music and highly controllable. Currently, it supports 4K vertical scroll rhythm game (VSRG) only, with the following control options:
 
 - Difficulty: supporting both [osu! star rating system](https://osu.ppy.sh/wiki/en/Beatmap/Star_rating) and [Etterna MSD system](https://etternaonline.com/).
@@ -61,7 +59,7 @@ python webui.py
 
 ## Model Structure and Methodology
 
-TODO
+![](asset/structure.png)
 
 ## Acknowledgement
 

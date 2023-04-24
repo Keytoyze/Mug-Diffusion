@@ -51,7 +51,7 @@ python webui.py
 
 ## 模型结构与方法
 
-未完待续
+![](asset/structure.png)
 
 ## 致谢
 
@@ -63,8 +63,8 @@ python webui.py
 - [kangalio](https://github.com/kangalio/)：源于 [MinaCalc-standalone](https://github.com/kangalio/minacalc-standalone)，MSD控制系统的一个组件。
 - [Evening](ttps://github.com/Eve-ning/)：源于 [reamberPy](https://github.com/Eve-ning/reamberPy)，提供了谱面生成非常直观的可视化预览。
 
-## 信用
+## 声明
 
 通过 Mug Diffusion 生成的谱面完全开源，明确遵循 [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) 通用公共领域专用协议。
 
-此外，所有由AI生成的谱面都标有 `AIMode: MuG Diffusion vx.x.x`  在 `[Meta]` 部分。**请保持其完整性或明确说明，除非你修改了谱面大部分的配置，否则你将有滥用AI的风险。**
+此外，所有由AI生成的谱面都在 `[Meta]` 部分标有 `AIMode: MuG Diffusion vx.x.x`。**请保持其完整性或明确说明，除非你修改了谱面大部分的配置，否则你将有滥用AI的风险。**
