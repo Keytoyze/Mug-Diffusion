@@ -37,17 +37,19 @@ Unzip the file and double click "Mug Diffusion.exe", which will open a browser i
 
 ### Running from Source
 
-If you use other platforms or want to run from source, here are the instructions.
+If you use other platforms, other GPU types or want to run from source, here are the instructions.
 
 - Install Python.
 
-- Install pytorch-cuda: https://pytorch.org/get-started/locally/
+- Install [PyTorch](https://pytorch.org/get-started/locally/)
 
 - Install other requirements:
 
 ```commandline
 pip install -r requirements.txt
 ```
+
+- Install [FFmpeg](https://ffmpeg.org/download.html), make sure that `ffmpeg` command can execute correctly.
 
 - Download the bundled executable, and copy the file `models/ckpt/model.ckpt` and `models/ckpt/model.yaml` to `{REPOSITORY_ROOT}/models/ckpt/*`.
 

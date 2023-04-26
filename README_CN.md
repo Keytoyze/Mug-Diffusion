@@ -29,17 +29,19 @@ MuG Diffusion 未来的目标是支持其它音游（osu!standard，下落式5-8
 
 ### 运行源代码
 
-如果您使用其它平台或希望从源代码运行，以下为说明。
+如果您使用其它平台、其他显卡或希望从源代码运行，以下为说明。
 
-- 安装 Python 。
+- 安装 Python。
 
-- 安装 pytorch-cuda ： https://pytorch.org/get-started/locally/
+- 安装 [PyTorch](https://pytorch.org/get-started/locally/)。
 
 - 安装其它依赖包：
 
 ```commandline
 pip install -r requirements.txt
 ```
+
+- 安装 [FFmpeg](https://ffmpeg.org/download.html)，确保 `ffmpeg` 命令可以正常运行。
 
 - 下载整合包，并复制文件 `models/ckpt/model.ckpt` 和 `models/ckpt/model.yaml` 到 `{REPOSITORY_ROOT}/models/ckpt/*` 目录下。
 
