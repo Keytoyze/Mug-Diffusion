@@ -1,12 +1,45 @@
-# **MuG Diffusion**
+<!-- markdownlint-disable MD033 MD041 -->
 
-_A charting AI for rhythm games._
+<p align="center">
+  <img src="https://p.qlogo.cn/gh/548470510/548470510/640/" width="200" height="200" alt="MuG Diffusion">
+</p>
 
-![LICENSE](https://img.shields.io/github/license/Keytoyze/Mug-Diffusion) ![GitHub stars](https://img.shields.io/github/stars/Keytoyze/Mug-Diffusion.svg) ![GitHub issues](https://img.shields.io/github/issues/Keytoyze/Mug-Diffusion) ![GitHub forks](https://img.shields.io/github/forks/Keytoyze/Mug-Diffusion) !["QQ Chat Group](https://img.shields.io/badge/QQ%E7%BE%A4-548470510-orange)
 
----
+<div align="center">
 
-English | [中文](./README_CN.md)
+
+# Mug Diffusion
+
+<!-- prettier-ignore-start -->
+<!-- markdownlint-disable-next-line MD036 -->
+_🎶 A charting AI for rhythm games. 🤖_
+<!-- prettier-ignore-end -->
+
+</div>
+
+<p align="center">
+  <a href="https://raw.githubusercontent.com/Keytoyze/Mug-Diffusion/master/LICENSE">
+    <img src="https://img.shields.io/github/license/Keytoyze/Mug-Diffusion" alt="license">
+  </a>
+  <a href="https://github.com/Keytoyze/Mug-Diffusion">
+    <img src="https://img.shields.io/github/stars/Keytoyze/Mug-Diffusion.svg" alt="stars">
+  </a>
+  <a href="https://github.com/Keytoyze/Mug-Diffusion/issues">
+    <img src="https://img.shields.io/github/issues/Keytoyze/Mug-Diffusion" alt="issues">
+  </a>
+  <a href="https://github.com/Keytoyze/Mug-Diffusion/forks">
+    <img src="https://img.shields.io/github/forks/Keytoyze/Mug-Diffusion" alt="forks">
+  </a>
+  <a href="http://qm.qq.com/cgi-bin/qm/qr?_wv=1027&k=L1ZmRMFhYXk13TkNzepCq5dFXXAl_yR5&authKey=DihDdCE8PIVSPDyCz6fpYpyVvn%2BOQoVJbMaXyUafMfA4%2FPtULGXg4decNAEGSf8i&noverify=0&group_code=548470510">
+    <img src="https://img.shields.io/badge/QQ%E7%BE%A4-548470510-orange" alt="forks">
+  </a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/Keytoyze/Mug-Diffusion">English</a>
+  |
+  <a href="https://github.com/Keytoyze/Mug-Diffusion/blob/master/README_CN.md">中文</a>
+</p>
 
 
 
@@ -39,7 +72,7 @@ Unzip the file and double click "Mug Diffusion.exe", which will open a browser i
 
 If you use other platforms, other GPU types or want to run from source, here are the instructions.
 
-- Install Python.
+- Install [Python](https://www.python.org/downloads/)
 
 - Install [PyTorch](https://pytorch.org/get-started/locally/)
 
