@@ -63,7 +63,7 @@ python webui.py
 
 特别感谢： 
 - [kangalio](https://github.com/kangalio/)：源于 [MinaCalc-standalone](https://github.com/kangalio/minacalc-standalone)，MSD控制系统的一个组件。
-- [Evening](ttps://github.com/Eve-ning/)：源于 [reamberPy](https://github.com/Eve-ning/reamberPy)，提供了谱面生成非常直观的可视化预览。
+- [Evening](https://github.com/Eve-ning/)：源于 [reamberPy](https://github.com/Eve-ning/reamberPy)，提供了谱面生成非常直观的可视化预览。
 
 ## 声明
 
