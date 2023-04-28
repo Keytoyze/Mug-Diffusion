@@ -31,9 +31,9 @@ MuG Diffusion 未来的目标是支持其它音游（osu!standard，下落式5-8
 
 如果您使用其它平台、其他显卡或希望从源代码运行，以下为说明。
 
-- 安装 Python。
+- 安装 [Python](https://www.python.org/downloads/)
 
-- 安装 [PyTorch](https://pytorch.org/get-started/locally/)。
+- 安装 [PyTorch](https://pytorch.org/get-started/locally/)
 
 - 安装其它依赖包：
 
@@ -63,7 +63,7 @@ python webui.py
 
 特别感谢： 
 - [kangalio](https://github.com/kangalio/)：源于 [MinaCalc-standalone](https://github.com/kangalio/minacalc-standalone)，MSD控制系统的一个组件。
-- [Evening](ttps://github.com/Eve-ning/)：源于 [reamberPy](https://github.com/Eve-ning/reamberPy)，提供了谱面生成非常直观的可视化预览。
+- [Evening](https://github.com/Eve-ning/)：源于 [reamberPy](https://github.com/Eve-ning/reamberPy)，提供了谱面生成非常直观的可视化预览。
 
 ## 声明
 
