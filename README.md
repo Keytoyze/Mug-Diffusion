@@ -1,13 +1,6 @@
 <!-- markdownlint-disable MD033 MD041 -->
 
-<p align="center">
-  <img src="https://p.qlogo.cn/gh/548470510/548470510/640/" width="200" height="200" alt="MuG Diffusion">
-</p>
-
-
 <div align="center">
-
-
 # Mug Diffusion
 
 <!-- prettier-ignore-start -->
