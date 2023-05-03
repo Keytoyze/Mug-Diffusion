@@ -103,6 +103,6 @@ Special thanks:
 
 ## Credits
 
-Charts created through MuG Diffusion are fully open source, explicitly falling under the [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) Universal Public Domain Dedication.
+Charts created through MuG Diffusion are fully open source, explicitly falling under the [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) Universal Public Domain Dedication. **Besides, the model weights and charts created are non-commercial.**
 
 Besides, all charts created by AI are tagged with `AIMode: MuG Diffusion vx.x.x` in the `[Meta]` section. **Please keep its integrity or mark it explicitly unless you modify the most of the notes, otherwise you will be at risk of abusing AI.**
