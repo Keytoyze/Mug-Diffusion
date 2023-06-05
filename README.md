@@ -93,6 +93,8 @@ python webui.py
 
 ## Acknowledgement
 
+In order to ensure the fairness and transparency of training, the dataset list is published in [here](https://mugdiffusion.keytoix.vip/dataset.html). 
+
 Thank all the Charters / Mappers in the community. It's you who endowed MuG Diffusion with intelligence. Besides, I would like to thank the [Malody](https://m.mugzone.net/) development teams (and many other supporters that cannot be listed due to space limit TAT) for the financial support.
 
 Thank [raber](https://github.com/zengrber) for webui development, [RiceSS](https://osu.ppy.sh/users/8271436) for logo design, and many testers for their support. 
@@ -103,6 +105,6 @@ Special thanks:
 
 ## Credits
 
-Charts created through MuG Diffusion are fully open source, explicitly falling under the [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) Universal Public Domain Dedication. **Besides, the model weights and charts created are non-commercial.**
+Charts created through MuG Diffusion are fully open source, explicitly falling under the [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) Universal Public Domain Dedication. **The model weights and charts created are non-commercial.**
 
 Besides, all charts created by AI are tagged with `AIMode: MuG Diffusion vx.x.x` in the `[Meta]` section. **Please keep its integrity or mark it explicitly unless you modify the most of the notes, otherwise you will be at risk of abusing AI.**

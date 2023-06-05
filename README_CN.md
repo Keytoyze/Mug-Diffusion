@@ -57,6 +57,8 @@ python webui.py
 
 ## 致谢
 
+为了确保训练的公平度与透明度，数据集的谱面列表公开在[此处](https://mugdiffusion.keytoix.vip/dataset.html)。
+
 感谢社区中的每一位谱师。是你们赋予了 MuG Diffusion 灵性。此外，我必须感谢 [Malody](https://m.mugzone.net/) 开发团队（以及许多其它由于篇幅限制而无法列出的支持者 TAT）的财力支持。
 
 感谢 [raber](https://github.com/zengrber) 对于网页控制台的开发， [RiceSS](https://osu.ppy.sh/users/8271436) 的图标设计，还有许多其它测试人员的大力支持。
